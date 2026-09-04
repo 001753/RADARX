@@ -1,0 +1,1173 @@
+# PRD: Radar Deteksi Token Berpotensi Hype (Solana)
+
+**Versi:** 1.2 — Precision-First, Evidence-Aware & Adversarial-Resistant  
+**Status:** Rujukan produk untuk technical discovery, data validation, dan paper mode  
+**Chain:** Solana  
+**Target build:** Replit AI Agent  
+**Prinsip utama:** lebih baik tidak memberi sinyal daripada memberi sinyal dengan bukti yang tidak cukup
+
+---
+
+## 0. Ringkasan perubahan versi 1.2
+
+Versi ini memasukkan seluruh masukan yang disetujui dari versi 1.1 dan memperkuat sistem dengan:
+
+1. **Selective prediction / NO_CALL:** sistem boleh menahan keputusan ketika bukti belum memadai.
+2. **Calibrated probability dan lower confidence bound:** High Priority tidak ditentukan oleh raw score saja.
+3. **Lifecycle-aware scoring:** token dinilai berdasarkan fase hidupnya, bukan menggunakan satu formula untuk semua umur.
+4. **Coordinated cluster detection:** creator, funding wallet, buyer, dan pool dianalisis sebagai graph.
+5. **Liquidity quality:** jumlah liquidity dipisahkan dari kedalaman, slippage, persistence, dan risiko withdrawal.
+6. **Flow quality analysis:** bot/wash detection tidak hanya bergantung pada unique wallet ratio.
+7. **Score persistence dan anti-spike:** sinyal harus bertahan atau dikategorikan sebagai unconfirmed spike.
+8. **Market regime detection:** threshold dan bobot dapat menyesuaikan kondisi pasar.
+9. **Champion–challenger model:** model baru diuji dalam shadow mode sebelum menggantikan model aktif.
+10. **Feature ablation:** fitur wajib membuktikan kontribusi out-of-sample.
+11. **Data integrity guard dan kill switch:** sistem berhenti memberi alert bila data provider rusak atau berubah.
+12. **Evidence ledger:** setiap keputusan memiliki bukti, data yang hilang, dan kondisi invalidasi.
+
+Versi ini tetap tidak menjanjikan profit, hit rate tertentu, atau keamanan token. Semua threshold dan bobot awal merupakan konfigurasi hipotesis yang wajib divalidasi.
+
+---
+
+## 1. Ringkasan produk
+
+Aplikasi web untuk memindai token baru di Solana, terutama alur Pump.fun menuju Raydium, kemudian menyajikan kandidat yang memiliki kombinasi:
+
+- risiko keamanan yang dapat diperiksa,
+- aktivitas pasar yang tidak terlalu terindikasi manipulatif,
+- liquidity yang dapat ditransaksikan,
+- pertumbuhan holder yang masuk akal,
+- momentum yang bertahan,
+- dan kualitas bukti yang mencukupi.
+
+Sistem menghasilkan tiga keluaran berbeda:
+
+```text
+Safety Risk       → risiko token/pool/entitas
+Opportunity Score → kekuatan pola momentum dan demand
+Evidence Confidence → kualitas, kelengkapan, dan kematangan data
+```
+
+Keluaran utama bukan “beli/jual”, melainkan:
+
+```text
+High Priority Watch
+Watchlist
+Provisional
+No Call / Wait for More Data
+Rejected
+Quarantined
+```
+
+### 1.1 Batas bahasa produk
+
+UI dan dokumentasi tidak boleh menggunakan:
+
+- token aman,
+- bebas rugpull,
+- pasti naik,
+- guaranteed profit,
+- sinyal beli,
+- probabilitas profit yang tidak terkalibrasi.
+
+Gunakan:
+
+- lolos pemeriksaan berbasis data yang tersedia,
+- sinyal historis dengan bukti lebih kuat,
+- data belum cukup,
+- indikasi risiko terdeteksi,
+- skor belum dikalibrasi sebagai probabilitas.
+
+---
+
+## 2. Tujuan dan non-tujuan
+
+### 2.1 Tujuan MVP Precision-First
+
+- Menemukan kandidat token baru tanpa mengklaim coverage seluruh ekosistem.
+- Mengurangi false positive dengan mekanisme abstain.
+- Memisahkan risiko, peluang, dan kualitas bukti.
+- Menyimpan seluruh keputusan secara insert-only dan dapat diaudit.
+- Menghasilkan score deterministik yang dapat direplay dari snapshot historis.
+- Mengukur outcome aktual pada beberapa horizon.
+- Menyediakan paper mode sebelum sistem dipakai untuk keputusan finansial nyata.
+
+### 2.2 Non-tujuan
+
+- Auto-trading, auto-buy, atau wallet custody.
+- Penyimpanan private key, seed phrase, atau signing authority.
+- Menyatakan token bebas scam.
+- Social listening penuh sebagai dependency inti.
+- Smart-money tagging sebelum wallet history dan PnL dapat diverifikasi.
+- Automated tuning tanpa holdout dan persetujuan model version.
+- Menggunakan LLM untuk gate, score, risk decision, atau probabilitas.
+
+---
+
+## 3. Definisi presisi dan outcome
+
+Target “hasil presisi tinggi” harus diukur, bukan diasumsikan dari tampilan score.
+
+### 3.1 Alert event
+
+Satu token memiliki `alert_event` ketika pertama kali memenuhi seluruh syarat:
+
+- eligibility minimum,
+- security-critical gate tidak `reject` atau `unknown`,
+- score valid,
+- Evidence Confidence melewati threshold,
+- data tidak melewati freshness limit,
+- dan score memenuhi persistence rule.
+
+Refresh token bukan observasi baru. Re-entry hanya boleh dibuat jika telah melewati cooldown dan memiliki event baru yang didefinisikan.
+
+### 3.2 Outcome labels
+
+Simpan label terpisah:
+
+#### `HYPE_1H`, `HYPE_6H`, `HYPE_24H`
+
+Sebuah alert menjadi `hit` jika:
+
+- mencapai return bersih minimum yang dikonfigurasi,
+- dalam horizon yang sesuai,
+- dengan aturan slippage dan liquidity floor,
+- tanpa melewati drawdown maksimum sebelum target.
+
+#### `SURVIVAL`
+
+Token tidak mengalami liquidity collapse, rug event, atau tradability failure sampai akhir horizon.
+
+#### `RISK_EVENT`
+
+Termasuk:
+
+- liquidity removal ekstrem,
+- authority berubah ke kondisi berbahaya,
+- pool tidak dapat ditransaksikan,
+- rugpull terkonfirmasi,
+- coordinated exit,
+- atau event keamanan lain yang memiliki evidence.
+
+Return target, horizon, drawdown, liquidity floor, dan event rule harus berada dalam config version. Tidak boleh tersembunyi di kode.
+
+### 3.3 Metrik wajib
+
+- Precision@High Priority Watch.
+- Precision@K per jam/hari.
+- Coverage atau alert rate.
+- Recall sebagai metrik sekunder.
+- False-positive rate.
+- Risk-event rate.
+- Average time-to-alert.
+- Score stability.
+- Calibration curve jika score dipresentasikan menjadi probabilitas.
+- Brier score atau expected calibration error.
+- Confidence interval.
+- Breakdown berdasarkan umur, liquidity bucket, pair type, lifecycle, waktu, dan market regime.
+
+Precision harus selalu dilaporkan bersama coverage. Precision 95% dengan satu alert tidak sama dengan precision 75% dengan coverage luas.
+
+### 3.4 Validasi anti-leakage
+
+- Gunakan chronological split dan walk-forward validation.
+- Feature pada `t` hanya boleh memakai data sampai `t`.
+- Cohort percentile hanya boleh memakai token yang sudah terlihat sampai `t`.
+- Threshold dan bobot dikunci sebelum test window.
+- Jangan melakukan tuning berulang pada final holdout.
+- Simulasikan latency, missing data, provider outage, slippage, dan survivorship bias.
+- Bandingkan dengan baseline volume, VLR, top-volume, dan random control.
+
+---
+
+## 4. Arsitektur sistem
+
+```text
+[Discovery]
+   → canonicalize token, pair, creator, pool
+   → fetch market/security/on-chain observations
+   → persist raw observations + provenance
+   → create feature snapshot
+   → classify lifecycle and market regime
+   → execute tri-state gates
+   → if eligible: normalize and calculate score
+   → calculate Evidence Confidence
+   → apply persistence, cluster, and alert policies
+   → write evidence ledger and score snapshot
+   → update watchlist
+   → attach future outcome labels
+   → evaluate champion/challenger models
+```
+
+### 4.1 Job types
+
+1. **Discovery job:** interval sekitar 1–2 menit, configurable.
+2. **Watchlist refresh:** sekitar 20–30 detik untuk token aktif.
+3. **Outcome labeling job:** mengisi HYPE, SURVIVAL, dan RISK_EVENT setelah horizon tercapai.
+4. **Provider health job:** mengukur latency, quota, freshness, schema drift, dan coverage.
+5. **Model evaluation job:** menghitung champion/challenger dalam shadow mode.
+
+### 4.2 Lifecycle state machine
+
+```text
+NEW
+→ EARLY_DISCOVERY
+→ BONDING_CURVE
+→ MIGRATION_CANDIDATE
+→ RAYDIUM_EARLY
+→ MOMENTUM_CONFIRMATION
+→ OVEREXTENDED
+→ DECAYING
+→ ARCHIVED
+```
+
+Token dapat berpindah state hanya berdasarkan bukti dan timestamp. Threshold scoring dan minimum sample dapat berbeda per state.
+
+### 4.3 Market regime
+
+Klasifikasikan kondisi ekosistem secara terpisah:
+
+```text
+BULLISH
+NEUTRAL
+RISK_OFF
+HIGH_VOLATILITY
+LIQUIDITY_CONTRACTION
+UNKNOWN
+```
+
+Gunakan kombinasi median/weighted return token Solana, market-wide volume, dispersion, liquidity inflow/outflow, volatilitas SOL, dan risk-event rate. Jika regime `UNKNOWN`, sistem menggunakan konfigurasi konservatif dan menurunkan Evidence Confidence.
+
+---
+
+## 5. Sumber data dan data contract
+
+### 5.1 Prinsip data
+
+DexScreener dan RugCheck tidak cukup untuk seluruh fitur precision tinggi. Fitur wallet, holder history, deployer attribution, pool state, dan candle membutuhkan RPC/indexer atau snapshot on-chain.
+
+Jika data tidak tersedia:
+
+- jangan mengisi nilai netral diam-diam,
+- jangan menganggap token aman,
+- tandai `unknown`,
+- turunkan Evidence Confidence,
+- tahan alert jika fitur tersebut security-critical,
+- simpan provider error dan provenance.
+
+### 5.2 DexScreener
+
+Digunakan untuk:
+
+- price, volume, liquidity,
+- buy/sell aggregates,
+- FDV/market cap,
+- pair metadata,
+- pair creation time,
+- kandidat discovery bila coverage telah diuji.
+
+Catatan:
+
+- endpoint search/profile tidak boleh diasumsikan sebagai stream lengkap token baru;
+- window 5m/1h/6h/24h bukan pengganti candle 15m;
+- setiap observation harus menyimpan provider timestamp dan received timestamp;
+- hitung stale rate dan duplikasi candidate.
+
+### 5.3 RugCheck
+
+Digunakan untuk:
+
+- mint authority,
+- freeze authority,
+- risk categories,
+- holder/risk report,
+- indikasi LP dan token security.
+
+Wajib ada:
+
+- response fixture untuk status baik, berbahaya, kosong, dan schema berubah;
+- field mapping versioned;
+- cache dengan freshness policy;
+- perbedaan jelas antara “no risk returned” dan “provider unavailable”;
+- verifikasi tambahan untuk token-program dan pool type bila diperlukan.
+
+RugCheck bukan sertifikat keamanan.
+
+### 5.4 RPC/indexer on-chain
+
+Untuk precision MVP, data berikut wajib atau token tidak eligible untuk score penuh:
+
+- unique buyer/seller wallet,
+- transaction timing dan early block/slot,
+- holder count dan distribution,
+- holder snapshots lintas waktu,
+- creator/deployer attribution,
+- funding wallet relationship,
+- pool/LP state sesuai pool type,
+- metadata URI/hash,
+- token-program extensions,
+- liquidity dan price snapshots jika candle tidak tersedia.
+
+Pemilihan Helius atau provider setara harus diuji berdasarkan:
+
+- coverage,
+- latency,
+- quota,
+- biaya,
+- consistency,
+- historical availability,
+- dan perilaku ketika rate limit.
+
+### 5.5 Provenance setiap feature
+
+Wajib menyimpan:
+
+```text
+source
+source_field
+observed_at
+received_at
+freshness_seconds
+quality_status
+calculation_version
+```
+
+Raw response penting disimpan immutable atau minimal dengan content hash.
+
+---
+
+## 6. Eligibility dan gate model
+
+### 6.1 Tri-state gate
+
+Setiap gate menghasilkan:
+
+- `pass`: kondisi terukur dan tidak ada pelanggaran,
+- `reject`: pelanggaran terkonfirmasi,
+- `unknown`: data tidak cukup, stale, konflik, atau provider gagal.
+
+`unknown` tidak pernah diubah menjadi `pass`.
+
+### 6.2 Gate 1 — Security
+
+#### Reject bila terkonfirmasi
+
+- mint authority aktif tanpa pengecualian yang disetujui,
+- freeze authority aktif tanpa pengecualian yang disetujui,
+- LP/pool state berisiko sesuai tipe pool,
+- top holder concentration melewati threshold teruji,
+- risk category terburuk dari RugCheck,
+- token-program extension/transfer behavior berbahaya,
+- security risk event terkonfirmasi.
+
+#### Unknown bila
+
+- provider gagal,
+- holder distribution belum memadai,
+- pool type tidak dikenali,
+- LP state tidak dapat diverifikasi,
+- source memiliki konflik.
+
+LP, burn address, escrow, dan program account harus dikecualikan dengan aturan yang terdokumentasi. Threshold top 1 15% dan top 10 40% adalah baseline yang harus diuji per lifecycle dan liquidity bucket.
+
+### 6.3 Gate 2 — Flow quality dan bot/wash
+
+Rasio dasar:
+
+```text
+UniqueBuyerRatio = unique_buyers / max(1, buy_transactions)
+```
+
+Jangan mencampur buy dan sell dalam denominator unique buyer.
+
+Feature tambahan:
+
+- repeat-buy ratio,
+- buy notional concentration/HHI,
+- early-wallet concentration,
+- same-slot/block ratio,
+- inter-arrival time entropy,
+- ukuran transaksi entropy,
+- new-wallet share,
+- wallet age,
+- funding-source reuse,
+- buy/sell notional imbalance,
+- coordinated exit ratio.
+
+Aturan:
+
+- minimum sample size wajib;
+- rasio dengan transaksi sedikit tidak dianggap bukti kuat;
+- satu heuristik tidak cukup untuk hard reject;
+- hard reject memerlukan kombinasi evidence atau coordinated behavior terkonfirmasi;
+- suspicion dapat menjadi penalty;
+- fitur block-level yang tidak tersedia harus `unknown`, bukan simulasi.
+
+### 6.4 Gate 3 — Clone/copycat
+
+```text
+NameSimilarity = 1 - normalized_levenshtein_distance
+```
+
+Normalisasi:
+
+- lowercase,
+- whitespace,
+- punctuation,
+- unicode,
+- suffix umum,
+- symbol formatting.
+
+Konfirmasi sebaiknya menggabungkan:
+
+- name/symbol similarity,
+- metadata URI/hash,
+- creator/deployer,
+- funding source,
+- launch timing,
+- pool/liquidity relationship.
+
+Nama mirip saja masuk `unknown` atau penalty. Ticker collision tidak cukup untuk reject.
+
+### 6.5 Gate 4 — Price/liquidity divergence
+
+```text
+PriceReturn30 = (price_now - price_30m_ago) / price_30m_ago
+LiquidityReturn30 = (liquidity_now - liquidity_30m_ago) / liquidity_30m_ago
+Divergence = PriceReturn30 - LiquidityReturn30
+```
+
+Syarat:
+
+- kedua snapshot fresh,
+- denominator valid,
+- liquidity floor terpenuhi,
+- token cukup matang untuk window tersebut,
+- threshold diuji per liquidity bucket.
+
+`Divergence > 40 percentage points` menjadi baseline hipotesis, bukan angka universal. Token yang belum memiliki window 30 menit diberi `not_mature`.
+
+### 6.6 Gate 5 — Deployer reputation
+
+Dev history wajib memiliki:
+
+- creator/deployer attribution,
+- definisi success/rug versioned,
+- evidence window,
+- minimum observation count,
+- confidence berbasis jumlah observasi,
+- status terpisah untuk unknown creator dan dev baru.
+
+`RugCount >= 2` hanya boleh menjadi strong reject jika attribution dan event terkonfirmasi. Dev baru tidak dianggap aman.
+
+### 6.7 Coordinated cluster detection
+
+Bangun graph:
+
+```text
+Token → Creator → Funding Wallet → Early Buyers → Pool → Liquidity Wallet
+```
+
+Hitung `ClusterRiskScore` dari:
+
+- shared creator,
+- shared funder,
+- wallet reuse,
+- metadata reuse,
+- launch timing,
+- pool relationship,
+- pola distribusi,
+- coordinated exits.
+
+Satu cluster tidak boleh menghasilkan banyak alert independen tanpa penalti atau deduplikasi.
+
+---
+
+## 7. Feature engineering dan scoring
+
+### 7.1 Normalisasi
+
+- winsorize outlier dengan batas versioned;
+- buat cohort berdasarkan lifecycle, age, liquidity, dan pair type;
+- gunakan hanya data yang telah terlihat pada waktu scoring;
+- minimum cohort size, misalnya 30;
+- fallback baseline rolling hanya jika telah ditentukan;
+- jika cohort dan fallback tidak valid, score menjadi `pending`.
+
+Simpan cohort id, cohort size, calculation time, dan model version.
+
+### 7.2 Momentum Score
+
+```text
+VLR_5m  = Volume_5m / max(Liquidity, liquidity_floor)
+VLR_1h  = Volume_1h / max(Liquidity, liquidity_floor)
+BSR     = BuyTx / max(1, BuyTx + SellTx)
+Accel   = (Volume_1h / max(epsilon, Volume_6h / 6)) - 1
+TrendQ  = R²(price regression) × sign(slope)
+RelativeMomentum = token_price_change - market_baseline
+```
+
+Momentum:
+
+```text
+0.25 × pct(VLR_5m)
+0.20 × pct(VLR_1h)
+0.20 × pct(BSR)
+0.15 × pct(Accel)
+0.10 × pct(TrendQ)
+0.10 × pct(RelativeMomentum)
+```
+
+Ketentuan:
+
+- candle harus benar-benar tersedia dari snapshot/candle provider;
+- notional buy/sell diprioritaskan jika transaction count mudah digame;
+- market baseline harus memiliki universe dan weighting yang dapat direproduksi;
+- score ekstrem akibat liquidity tipis harus dikendalikan liquidity floor.
+
+### 7.3 Holder Health
+
+```text
+GrowthRate = (holders_now - holders_1h_ago) / max(1, holders_1h_ago)
+Distrib    = 1 - Gini(holder_distribution)
+Retention  = retained_holders / max(1, holders_1h_ago)
+```
+
+```text
+HolderHealth =
+0.40 × pct(GrowthRate)
+0.35 × pct(Distrib)
+0.25 × pct(Retention)
+```
+
+Holder report tunggal tidak cukup untuk membuktikan retention.
+
+### 7.4 Liquidity quantity dan quality
+
+Pisahkan:
+
+```text
+LiquidityQuantity
+LiquidityDepth
+EstimatedSlippage
+LiquidityPersistence
+LPConcentration
+LiquidityWithdrawalRisk
+```
+
+Gunakan `LiquidityQualityScore` sebagai feature dan `LiquidityStabilityMultiplier` sebagai kontrol risiko. Nilai liquidity besar tidak otomatis berarti token mudah dijual.
+
+### 7.5 Flow Quality Score
+
+Gabungkan:
+
+- wallet diversity,
+- notional diversity,
+- temporal irregularity,
+- holder persistence,
+- early concentration,
+- funding independence,
+- sell-side behavior.
+
+Score ini bukan klaim “bot detector sempurna”. Ia adalah estimasi kualitas arus transaksi dan harus memiliki confidence serta evidence.
+
+### 7.6 Score weights
+
+Semua bobot aktif wajib berjumlah tepat 1.00.
+
+#### MVP tanpa Smart Money dan Narrative
+
+```text
+Momentum     0.5455
+HolderHealth 0.4545
+```
+
+#### Dengan Smart Money, tanpa Narrative
+
+```text
+Momentum     0.4286
+HolderHealth 0.3571
+SmartMoney   0.2143
+```
+
+#### Mode lengkap
+
+```text
+Momentum     0.3750
+HolderHealth 0.3125
+SmartMoney   0.1875
+Narrative    0.1250
+```
+
+Bobot ini mempertahankan proporsi awal 30:25:15:10 tetapi dinormalisasi. Sistem wajib menolak startup jika jumlah bobot tidak sama dengan 1.
+
+### 7.7 Penalties
+
+```text
+RawScore = Σ(active_weight × component_score)
+SignalScore = RawScore × WashPenalty × LiquidityStabilityMultiplier
+```
+
+Semua output dibatasi pada 0–100 atau 0–1 sesuai tipenya.
+
+Baseline liquidity:
+
+```text
+BaseLiqMultiplier = clamp(
+  0.60 + 0.40 × pct(LiqSlope)/100,
+  0.60,
+  1.00
+)
+
+Jika LiqTrend < -10%:
+  LiquidityStabilityMultiplier = min(BaseLiqMultiplier, 0.40)
+Jika tidak:
+  LiquidityStabilityMultiplier = BaseLiqMultiplier
+```
+
+Nilai ini wajib dikalibrasi. Missing/stale tidak menjadi score nol; statusnya `unknown` atau `pending`.
+
+Wash penalty:
+
+```text
+UniqueBuyerRatio < 0.15 → strong suspicion; reject hanya dengan evidence tambahan
+0.15–0.30               → 0.75
+>= 0.30                 → 1.00
+```
+
+Penalty hanya aktif setelah minimum sample terpenuhi. Jangan menerapkan aturan penalty yang tidak mungkin terlihat karena sudah seluruhnya di-hard-reject oleh gate.
+
+---
+
+## 8. Confidence, probability, dan alert policy
+
+### 8.1 Evidence Confidence
+
+Istilah confidence pada MVP berarti kualitas evidence, bukan peluang profit.
+
+```text
+Maturity      = min(1, token_age_minutes / 30)
+SampleQuality = min(1, sqrt(buy_transactions / 50))
+DataQuality   = weighted freshness + feature coverage + source agreement
+EvidenceConfidence = Maturity × SampleQuality × DataQuality
+```
+
+Bobot DataQuality wajib versioned dan dibedakan antara feature kritis dan kosmetik.
+
+### 8.2 Score yang ditampilkan
+
+```text
+FinalScore    = SignalScore
+PriorityScore = FinalScore × (0.50 + 0.50 × EvidenceConfidence)
+```
+
+Dashboard diranking dengan `PriorityScore`, tetapi keduanya wajib ditampilkan.
+
+### 8.3 Selective prediction
+
+Sistem memiliki keluaran sah:
+
+```text
+NO_CALL / WAIT_FOR_MORE_DATA
+```
+
+Keluaran ini digunakan jika:
+
+- evidence belum cukup,
+- cohort terlalu kecil,
+- source conflict,
+- score belum stabil,
+- lifecycle belum matang,
+- cluster risk belum dapat diputuskan,
+- atau provider health terdegradasi.
+
+### 8.4 Probability calibration
+
+Setelah outcome cukup, model boleh menghitung:
+
+```text
+P(HYPE_H | features, cohort, lifecycle, market_regime)
+```
+
+Jangan menyebut FinalScore sebagai probabilitas sebelum calibration.
+
+Untuk High Priority, gunakan prinsip konservatif:
+
+```text
+High Priority jika lower_confidence_bound(P_success)
+>= target_precision
+```
+
+Dengan demikian estimasi hit rate tinggi tetapi sample kecil tidak otomatis menghasilkan alert.
+
+### 8.5 Score persistence dan anti-spike
+
+Score tinggi satu kali diberi:
+
+```text
+SPIKE_UNCONFIRMED
+```
+
+High Priority membutuhkan persistence rule, misalnya score melewati threshold selama beberapa snapshot berturut-turut. Jumlah snapshot dan interval harus configurable per lifecycle.
+
+Tambahkan:
+
+- ScorePersistence,
+- ScoreVolatility,
+- FeatureStability,
+- label `Accelerating`, `Confirmed`, `Overextended`, dan `Decaying`.
+
+Gunakan hysteresis supaya label tidak terus berubah pada batas threshold.
+
+### 8.6 Alert budget dan deduplikasi
+
+- maksimum High Priority alert per jam,
+- cooldown token,
+- cooldown cluster,
+- maksimum alert dari creator/funding cluster,
+- deduplikasi re-entry,
+- mode konservatif ketika market regime buruk.
+
+Alert budget mencegah correlated false positives.
+
+---
+
+## 9. Champion–challenger dan feature governance
+
+### 9.1 Model registry
+
+Setiap model menyimpan:
+
+- model version,
+- feature set,
+- weight set,
+- gate thresholds,
+- label configuration,
+- cohort policy,
+- calibration version,
+- activation date,
+- approval status.
+
+### 9.2 Champion–challenger
+
+- Champion adalah model aktif.
+- Challenger berjalan shadow mode tanpa mengubah alert.
+- Bandingkan precision, coverage, false positive, time-to-alert, score stability, dan performa per regime.
+- Challenger hanya boleh menjadi champion setelah mengungguli baseline pada out-of-sample window.
+
+### 9.3 Feature ablation
+
+Evaluasi minimal:
+
+- model penuh,
+- tanpa holder feature,
+- tanpa momentum acceleration,
+- tanpa wallet feature,
+- tanpa liquidity multiplier,
+- tanpa cluster feature.
+
+Fitur yang hanya membantu data lama tetapi gagal pada periode baru harus diturunkan atau dihapus.
+
+### 9.4 Tidak menggunakan LLM sebagai mesin keputusan
+
+LLM boleh dipakai untuk:
+
+- merangkum evidence,
+- menjelaskan score,
+- mengelompokkan metadata,
+- membantu audit.
+
+LLM tidak boleh menentukan gate, threshold, score, risk decision, atau probabilitas.
+
+---
+
+## 10. Evidence ledger dan explainability
+
+Setiap token/alert menyimpan evidence ledger:
+
+```text
+Evidence:
++ liquidity bertahan selama ...
++ holder bertumbuh secara konsisten
++ buy flow terdiversifikasi
++ tidak ada authority risk terdeteksi
++ score bertahan ... snapshot
+
+Warnings:
+- creator belum memiliki histori
+- holder data berasal dari satu provider
+- liquidity quality belum lengkap
+- volume acceleration terlalu ekstrem
+
+Invalidation:
+- liquidity turun lebih dari ...
+- holder retention runtuh
+- provider conflict
+- cluster risk meningkat
+```
+
+Pengguna harus dapat melihat:
+
+- mengapa token dipromosikan,
+- mengapa token ditahan,
+- data apa yang hilang,
+- kondisi yang dapat membatalkan sinyal.
+
+---
+
+## 11. Skema data minimum
+
+### `tokens`
+
+- canonical token address,
+- token program,
+- name/symbol,
+- metadata URI/hash,
+- creator/deployer,
+- first seen,
+- launch timestamp,
+- lifecycle state.
+
+### `pairs`
+
+- pair/pool address,
+- DEX,
+- pool type,
+- base/quote mint,
+- LP identifiers,
+- active state.
+
+### `raw_source_observations`
+
+- provider,
+- endpoint/field,
+- payload/content hash,
+- observed_at,
+- received_at,
+- status/error,
+- schema version.
+
+### `market_snapshots`
+
+- price,
+- liquidity,
+- volume,
+- buys/sells,
+- notional,
+- candle interval,
+- liquidity depth,
+- slippage estimate,
+- freshness.
+
+### `holder_snapshots`
+
+- holder count,
+- distribution summary,
+- Gini inputs,
+- retention inputs,
+- excluded accounts,
+- source and timestamp.
+
+### `wallet_observations`
+
+- wallet address hash/reference,
+- transaction type,
+- amount,
+- slot/block,
+- funding relationship,
+- first-seen time,
+- token/pair relation.
+
+### `clusters`
+
+- cluster id,
+- entity members,
+- relation type,
+- risk score,
+- evidence references,
+- calculation version.
+
+### `gate_decisions`
+
+- token/pair/snapshot,
+- gate name,
+- status,
+- reason code,
+- evidence reference,
+- threshold version,
+- model version.
+
+### `score_snapshots`
+
+- component scores,
+- active weights,
+- penalties,
+- SignalScore,
+- EvidenceConfidence,
+- PriorityScore,
+- lifecycle,
+- market regime,
+- cohort id/size,
+- model version.
+
+### `alert_events`
+
+- alert id,
+- token/pair,
+- alert type,
+- alert_at,
+- dedupe key,
+- cooldown state,
+- evidence ledger reference.
+
+### `outcome_labels`
+
+- alert event,
+- horizon,
+- return path,
+- MFE,
+- MAE,
+- liquidity path,
+- survival state,
+- risk event,
+- label version,
+- labeling timestamp.
+
+### Operational entities
+
+Sediakan tabel/entity terpisah untuk:
+
+- watchlist,
+- dev history,
+- scan runs,
+- provider health,
+- model registry,
+- config versions,
+- audit events.
+
+Snapshot bersifat insert-only. Summary/cache tidak boleh menggantikan audit history.
+
+---
+
+## 12. Dashboard dan UX
+
+### 12.1 Dashboard utama
+
+Kolom minimum:
+
+- token/pair,
+- lifecycle,
+- FinalScore,
+- PriorityScore,
+- EvidenceConfidence,
+- label,
+- umur token,
+- liquidity quantity,
+- liquidity quality,
+- volume 1h,
+- market regime,
+- freshness,
+- cluster warning,
+- status data.
+
+### 12.2 Detail token
+
+Tampilkan:
+
+- Safety Risk,
+- Opportunity Score,
+- Evidence Confidence,
+- Momentum,
+- Holder Health,
+- Flow Quality,
+- Smart Money bila tersedia,
+- Narrative bila tersedia,
+- bobot aktif,
+- model version,
+- tiap gate,
+- evidence dan warning,
+- liquidity quality,
+- score history,
+- feature stability,
+- invalidation conditions,
+- outcome history jika sudah tersedia.
+
+### 12.3 Status UI
+
+Gunakan status berbeda:
+
+```text
+Confirmed
+Provisional
+Spike Unconfirmed
+No Call
+Rejected
+Quarantined
+Stale
+```
+
+`No Call` dan `Quarantined` harus dapat dilihat, bukan disembunyikan.
+
+### 12.4 Audit/rejected log
+
+- token rejected/unknown,
+- gate dan reason code,
+- timestamp,
+- source evidence,
+- model version,
+- filter lifecycle/regime,
+- ekspor untuk evaluasi.
+
+Banner disclaimer permanen wajib terlihat.
+
+---
+
+## 13. Reliability, data integrity, dan keamanan
+
+### 13.1 Provider reliability
+
+- token bucket per provider dan endpoint class,
+- hormati Retry-After,
+- exponential backoff + jitter,
+- timeout,
+- circuit breaker,
+- concurrency limit,
+- queue backpressure,
+- job lease,
+- idempotency key,
+- structured logs,
+- satu token/provider gagal tidak menghentikan batch.
+
+### 13.2 Data integrity guard
+
+Deteksi:
+
+- schema provider berubah,
+- timestamp mundur,
+- price/liquidity format rusak,
+- mayoritas response memiliki nilai sama,
+- discovery count turun ekstrem,
+- source conflict,
+- stale rate melonjak,
+- error rate meningkat,
+- semua token tiba-tiba menjadi unknown.
+
+### 13.3 Kill switch
+
+Mode operasional:
+
+```text
+NORMAL
+DEGRADED
+QUARANTINED
+STOP_SCORING
+```
+
+Pada `STOP_SCORING`, sistem masih boleh mengumpulkan raw data, tetapi tidak membuat alert baru.
+
+### 13.4 Security controls
+
+- tidak ada private key/seed phrase,
+- tidak ada auto-buy endpoint,
+- validasi address,
+- API rate limit,
+- pagination,
+- redaction log,
+- akses dashboard dan audit endpoint dibatasi,
+- raw payload yang sensitif tidak ditampilkan ke publik.
+
+---
+
+## 14. Roadmap delivery
+
+### Phase 0 — Data feasibility dan benchmark
+
+- Uji provider dan schema.
+- Verifikasi coverage setiap feature.
+- Kumpulkan fixture token hype, rug, bot, clone, low-liquidity, slow mover, dan data-error.
+- Definisikan outcome, liquidity floor, drawdown, horizon, dan metric target.
+- Buat baseline sederhana.
+- Tentukan provider, quota, biaya, dan retention.
+
+### Phase 1 — Measurement engine
+
+- Discovery/canonicalization.
+- Raw observations dan provenance.
+- Market/holder/wallet snapshots.
+- Lifecycle dan market regime.
+- Tri-state gates.
+- Evidence ledger.
+- Replay test.
+
+### Phase 2 — Scoring dan paper mode
+
+- SignalScore dan EvidenceConfidence.
+- Liquidity quality.
+- Flow quality.
+- Cluster detection.
+- Persistence/anti-spike.
+- Dashboard audit.
+- Outcome labeling.
+- Walk-forward evaluation.
+
+### Phase 3 — Model governance
+
+- Calibrated probability.
+- Lower confidence bound alert policy.
+- Champion–challenger.
+- Feature ablation.
+- Drift monitoring.
+- Rollback model version.
+
+### Phase 4 — Fitur lanjutan
+
+- Smart-money wallet tagging,
+- Helius/indexer block-level enrichment bila terbukti meningkatkan precision,
+- social narrative authenticity,
+- survival analysis,
+- conformal prediction,
+- automated tuning yang diawasi.
+
+---
+
+## 15. Keputusan yang wajib dikunci sebelum implementasi
+
+1. Return target bersih untuk HYPE 1H/6H/24H.
+2. Batas drawdown sebelum target dianggap gagal.
+3. Liquidity floor dan metode slippage.
+4. Target precision dan coverage minimum.
+5. Minimum cohort size.
+6. Provider on-chain/indexer dan budget quota.
+7. Pool type yang dicakup.
+8. Kebijakan token `unknown`, stale, dan source conflict.
+9. Persistence rule untuk setiap lifecycle.
+10. Alert budget per jam dan cooldown.
+11. Retention raw payload dan snapshot.
+12. Model version approval.
+13. Definisi rug, survival, dan coordinated exit.
+14. Market regime fallback.
+15. Kapan score boleh dipresentasikan sebagai probabilitas terkalibrasi.
+
+Jika keputusan ini belum dikunci, pekerjaan masih berada pada tahap discovery dan measurement, bukan tahap membangun radar yang dapat dipercaya.
+
+---
+
+## 16. Prinsip penerimaan sebelum go-live
+
+Radar tidak boleh dipromosikan sebagai siap digunakan untuk keputusan finansial sebelum:
+
+- semua security-critical feature memiliki coverage yang dapat diukur,
+- `unknown` tidak bocor menjadi `pass`,
+- outcome label dapat dihitung tanpa future leakage,
+- score dapat direplay,
+- baseline dan model challenger dibandingkan,
+- High Priority memiliki precision dan coverage yang dilaporkan bersama,
+- paper mode menangkap beberapa market regime,
+- provider health dan kill switch telah diuji,
+- audit evidence dapat ditelusuri dari alert ke raw observation.
+
+---
+
+## 17. Disclaimer
+
+Sistem ini adalah alat bantu screening berbasis data pasar dan on-chain. Sistem bukan nasihat keuangan, bukan sinyal investasi, tidak menjamin kenaikan harga, tidak menjamin token bebas rugpull atau scam, dan tidak menjamin profit. Pasar meme coin memiliki risiko sangat tinggi, termasuk kehilangan seluruh modal. Semua formula, threshold, bobot, probabilitas, dan label adalah hipotesis yang harus divalidasi melalui backtest time-based dan paper mode sebelum digunakan untuk keputusan finansial nyata.
