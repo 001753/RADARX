@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "OFRINuCa3OivxOtcQWB8-"
+uri = "file://attached_assets/PRD-Radar-Deteksi-Token-Berpotensi-Hype-Solana-Versi-1.1-Precision-First.txt"
+type = "text"
+title = "PRD Radar Solana — Versi 1.1 Precision-First"
+description = "PRD revisi dengan definisi outcome, tri-state gates, data contract, formula scoring yang dinormalisasi, confidence terpisah, validasi walk-forward, dan roadmap paper mode."
+logical_id = "faec9f5c-aef3-4194-ba74-5ae6edf7e217"
+content_hash = "sha256:342e58d5c8a1f7ec8c29c9a18a8f063efcfe9528d35fa4981bd0452a79a00868"
+size = 25560
+mtime_ms = 1788538513191
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c4a29b5e-6206-4c81-9a35-cf7e960d9012/faec9f5c-aef3-4194-ba74-5ae6edf7e217/17306315-fa1a-453d-bd31-093690185412"
+storage_version_token = "1788538528247143"
+content_type = "text/plain"
