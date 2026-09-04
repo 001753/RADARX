@@ -1,0 +1,1 @@
+- [Public Solana RPC limits](solana-rpc-limits.md) — the public endpoint rejects getTokenLargestAccounts; preserve unknown semantics instead of retrying it as a required feature.

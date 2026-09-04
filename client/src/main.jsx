@@ -139,16 +139,18 @@ function App() {
   const [message, setMessage] = useState("");
   const [lastScan, setLastScan] = useState(null);
   const [precision, setPrecision] = useState(null);
+  const [coverage, setCoverage] = useState(null);
 
   async function loadLive() {
     setLoading(true);
     try {
-      const [radar, apiHealth, report] = await Promise.all([fetch(`${API}/radar`).then((r) => r.json()), fetch(`${API}/health`).then((r) => r.json()), fetch(`${API}/precision-report`).then((r) => r.json())]);
+      const [radar, apiHealth, report, coverageReport] = await Promise.all([fetch(`${API}/radar`).then((r) => r.json()), fetch(`${API}/health`).then((r) => r.json()), fetch(`${API}/precision-report`).then((r) => r.json()), fetch(`${API}/coverage`).then((r) => r.json())]);
       if (radar.error) throw new Error(radar.error);
       setItems(radar.items || []);
       setMode(radar.dataMode || "LIVE_DATABASE");
       setHealth(apiHealth);
       setPrecision(report);
+      setCoverage(coverageReport);
       setMessage(radar.items?.length ? "" : "Belum ada snapshot live. Jalankan scan untuk mengambil kandidat terbaru.");
     } catch (error) {
       setHealth({ db: "error", modelVersion: "—" });
@@ -214,7 +216,7 @@ function App() {
           <div className="overview-card"><span className="eyebrow">Universe</span><strong>{items.length || "—"}</strong><small>{mode === "DEMO_FIXTURES" ? "labeled fixtures" : "stored observations"}</small></div>
           <div className="overview-card"><span className="eyebrow">Priority</span><strong>{counts.HIGH_PRIORITY || 0}</strong><small>high evidence candidates</small></div>
           <div className="overview-card"><span className="eyebrow">Held back</span><strong>{(counts.QUARANTINED || 0) + (counts.NO_CALL || 0)}</strong><small>unknown / no call</small></div>
-          <div className="overview-card regime-card"><span className="eyebrow">Method</span><strong>Fail-closed</strong><small>model v1.2.0 · 2 active components</small></div>
+          <div className="overview-card regime-card"><span className="eyebrow">Coverage</span><strong>{coverage?.marketSnapshots?.count || 0}</strong><small>market snapshots · {coverage?.precisionReady ? "precision ready" : "outcome window open"}</small></div>
         </section>
         <section className="section-heading"><div><span className="eyebrow">Live watchlist</span><h2>Evidence queue</h2></div><div className="filters">{["ALL", "HIGH_PRIORITY", "WATCHLIST", "PROVISIONAL", "QUARANTINED", "REJECTED"].map((value) => <button className={filter === value ? "active" : ""} key={value} onClick={() => setFilter(value)}>{value === "ALL" ? "All" : value.replaceAll("_", " ")}</button>)}</div></section>
         <section className="queue-meta"><span><i className="live-indicator" /> {mode === "DEMO_FIXTURES" ? "Fixture dataset · clearly labeled" : "Database snapshot · refresh manually"}</span><span>{filtered.length} showing · ranked by PriorityScore</span></section>

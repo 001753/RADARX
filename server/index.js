@@ -98,11 +98,22 @@ async function saveScanToken(pair, rugResult, mode = "live") {
   const address = pair.tokenAddress;
   if (!address) return null;
   const age = ageMinutes(pair.pairCreatedAt);
-  const [supplyResult, largestResult, accountResult] = await Promise.all([
+  const [supplyResult, accountResult] = await Promise.all([
     fetchSolanaRpc("getTokenSupply", [address]),
-    fetchSolanaRpc("getTokenLargestAccounts", [address]),
     fetchSolanaRpc("getAccountInfo", [address, { encoding: "jsonParsed" }]),
   ]);
+  // The public Solana endpoint consistently rejects getTokenLargestAccounts.
+  // Do not retry it on every scan or turn its absence into a safe default.
+  const largestResult = {
+    provider: "solana",
+    endpoint: "getTokenLargestAccounts",
+    ok: false,
+    status: 0,
+    payload: null,
+    latencyMs: 0,
+    hash: null,
+    error: "UNAVAILABLE_PUBLIC_RPC_METHOD",
+  };
   const rpcResults = [
     { method: "getTokenSupply", ...supplyResult.payload },
     { method: "getTokenLargestAccounts", ...largestResult.payload },
@@ -147,7 +158,7 @@ async function saveScanToken(pair, rugResult, mode = "live") {
     }
     if (pair.raw) await saveObservation(client, address, { provider: "dexscreener", endpoint: `/latest/dex/tokens/${address}`, ok: true, payload: pair.raw, hash: null, error: null });
     if (rugResult) await saveObservation(client, address, rugResult);
-    for (const rpcResult of [supplyResult, largestResult, accountResult]) await saveObservation(client, address, rpcResult);
+    for (const rpcResult of [supplyResult, accountResult]) await saveObservation(client, address, rpcResult);
     const supplyAmount = Number(supplyResult.payload?.result?.value?.amount);
     const largestAccounts = Array.isArray(largestResult.payload?.result?.value) ? largestResult.payload.result.value : [];
     const topHolderDistribution = supplyAmount > 0
@@ -161,7 +172,7 @@ async function saveScanToken(pair, rugResult, mode = "live") {
         null,
         JSON.stringify(topHolderDistribution),
         computeGini(topHolderDistribution),
-        JSON.stringify({ source: "solana", coverage: topHolderDistribution.length ? "top_accounts_only" : "unavailable", accountCount: topHolderDistribution.length }),
+        JSON.stringify({ source: "solana", coverage: topHolderDistribution.length ? "top_accounts_only" : "unavailable", reason: "PUBLIC_RPC_METHOD_UNAVAILABLE", accountCount: topHolderDistribution.length }),
       ],
     );
     await client.query(
@@ -507,6 +518,24 @@ app.get("/api/precision-report", async (req, res) => {
   if (!requireDb(res)) return;
   const result = await query(`SELECT horizon, label, mfe, mae, labeled_at AS "labeledAt" FROM outcome_labels WHERE label IS NOT NULL ORDER BY labeled_at DESC`);
   res.json({ ...precisionReport(result.rows), dataMode: "LIVE_DATABASE" });
+});
+
+app.get("/api/coverage", async (req, res) => {
+  if (!requireDb(res)) return;
+  const [providers, scans, labels, snapshots] = await Promise.all([
+    query(`SELECT source, status, COUNT(*)::int AS count, MAX(received_at) AS "lastSeen" FROM raw_source_observations GROUP BY source, status ORDER BY source, status`),
+    query(`SELECT mode, COUNT(*)::int AS count, MAX(started_at) AS "lastStarted", SUM(errors)::int AS errors FROM scan_runs GROUP BY mode ORDER BY mode`),
+    query(`SELECT horizon, COUNT(*)::int AS count FROM outcome_labels WHERE label IS NOT NULL GROUP BY horizon ORDER BY horizon`),
+    query(`SELECT COUNT(*)::int AS count, MIN(observed_at) AS "firstObserved", MAX(observed_at) AS "lastObserved" FROM market_snapshots`),
+  ]);
+  res.json({
+    dataMode: "LIVE_DATABASE",
+    providers: providers.rows,
+    scans: scans.rows,
+    outcomes: labels.rows,
+    marketSnapshots: snapshots.rows[0],
+    precisionReady: labels.rows.every((row) => row.count >= 30) && labels.rows.length === Object.keys(OUTCOME_CONFIG).length,
+  });
 });
 
 app.get("/api/alerts", async (req, res) => {

@@ -31,6 +31,7 @@ npm run build
 - **Live database:** dashboard membaca snapshot yang tersimpan dari DexScreener, RugCheck, dan RPC Solana publik.
 - **Scan live market:** mengambil discovery terbaru dan menyimpan raw observation, market snapshot, gate decision, serta score snapshot.
 - **Scheduler:** discovery setiap 120 detik dan refresh watchlist setiap 30 detik, dengan scan lock.
+- **Public RPC limitation:** method `getTokenLargestAccounts` ditolak oleh endpoint publik; top-holder evidence hanya dipakai bila tersedia dari RugCheck/provider lain. Ketiadaannya tetap `unknown`, bukan aman.
 - **Research fixtures:** data fixture diberi label eksplisit `DEMO_FIXTURES`; bukan data pasar live dan tidak boleh dipakai untuk klaim performa.
 
 ## Prinsip model

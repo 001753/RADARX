@@ -11,11 +11,12 @@ const PROVIDERS = {
   },
   solana: {
     base: "https://api.mainnet-beta.solana.com",
-    minGapMs: 250,
+    minGapMs: 600,
   },
 };
 
 const lastRequest = new Map();
+const providerQueues = new Map();
 
 function hashPayload(payload) {
   return crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
@@ -23,10 +24,19 @@ function hashPayload(payload) {
 
 async function waitForRateLimit(provider) {
   const config = PROVIDERS[provider];
-  const previous = lastRequest.get(provider) || 0;
-  const delay = Math.max(0, config.minGapMs - (Date.now() - previous));
-  if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
-  lastRequest.set(provider, Date.now());
+  const previous = providerQueues.get(provider) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => { release = resolve; });
+  providerQueues.set(provider, current);
+  await previous;
+  try {
+    const last = lastRequest.get(provider) || 0;
+    const delay = Math.max(0, config.minGapMs - (Date.now() - last));
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    lastRequest.set(provider, Date.now());
+  } finally {
+    release();
+  }
 }
 
 async function fetchJson(provider, endpoint, options = {}) {
