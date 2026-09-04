@@ -1,0 +1,34 @@
+{
+  "name": "radar-solana",
+  "version": "1.2.0",
+  "description": "Precision-first Solana token research radar",
+  "main": "server/index.js",
+  "scripts": {
+    "dev": "node server/index.js",
+    "build": "vite build",
+    "db:push": "node server/migrate.js",
+    "check": "node --check server/index.js && node --check server/engine.js && node --check server/providers.js",
+    "test": "node --test test/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/001753/RADARX.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/001753/RADARX/issues"
+  },
+  "homepage": "https://github.com/001753/RADARX#readme",
+  "dependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "pg": "^8.23.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "vite": "^8.2.2"
+  }
+}
