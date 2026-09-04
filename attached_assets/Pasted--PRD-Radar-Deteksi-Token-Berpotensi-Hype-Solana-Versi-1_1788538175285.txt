@@ -1,0 +1,299 @@
+# PRD: Radar Deteksi Token Berpotensi Hype (Solana)
+
+**Versi:** 1.0
+**Target build:** Replit AI Agent
+**Chain:** Solana
+**Sumber data utama:** DexScreener API (gratis, no-key) + RugCheck.xyz API (gratis, no-key)
+
+---
+
+## 1. Ringkasan Produk
+
+Aplikasi web yang memindai token baru di Solana (khususnya ekosistem Pump.fun → Raydium), menyaring token yang berisiko rugpull/scam/bot-driven, lalu memberi skor momentum untuk token yang lolos filter. Output berupa dashboard watchlist real-time (polling interval pendek) yang menampilkan token dengan potensi pergerakan besar beserta breakdown skornya.
+
+**Yang produk ini BUKAN:** alat prediksi harga yang pasti benar. Ini adalah alat screening probabilistik. Setiap skor harus ditampilkan bersama tingkat *confidence*-nya, dan UI wajib menampilkan disclaimer risiko di tempat yang terlihat.
+
+## 2. Tujuan & Non-Tujuan
+
+**Tujuan:**
+- Deteksi otomatis token baru di Solana secara berkala (polling tiap 15–30 detik untuk token yang sedang dipantau).
+- Menyaring token dengan indikasi rugpull, honeypot, atau aktivitas bot sebelum masuk ke scoring.
+- Menghasilkan skor komposit 0–100 dengan breakdown per komponen, disertai level confidence.
+- Menyimpan histori skor per token untuk keperluan analisis/backtest ke depannya.
+
+**Non-Tujuan (di luar scope MVP):**
+- Eksekusi auto-trading/auto-buy (murni alat analisis, bukan bot trading).
+- Social listening penuh (Twitter/Telegram API) — dijadwalkan Fase 2.
+- Smart money wallet tagging berbasis histori PnL — dijadwalkan Fase 2 (di MVP, bobot komponen ini didistribusikan ulang, lihat Bagian 5).
+
+## 3. Alur Sistem (High-Level)
+
+```
+[Scheduler/Cron] 
+   → Ambil daftar token baru dari DexScreener (search & pairs endpoint, filter chain=solana)
+   → Untuk tiap token baru: jalankan GATE 1 (Security) via RugCheck API
+   → Jika lolos: jalankan GATE 2 (Bot Detection) dari data transaksi
+   → Jika lolos: jalankan GATE 3 (Clone/Copycat Detection)
+   → Jika lolos semua gate: hitung SCORING MODEL
+   → Simpan hasil ke database (snapshot time-series, bukan overwrite)
+   → Tampilkan di dashboard, urut berdasarkan FinalScore × Confidence
+   → Token yang sudah masuk watchlist di-refresh ulang skornya tiap interval berjalan
+```
+
+## 4. Sumber Data & Endpoint
+
+### 4.1 DexScreener API (data utama, refresh cepat)
+- Base: `https://api.dexscreener.com`
+- `GET /latest/dex/search?q=<query>` — pencarian pair
+- `GET /latest/dex/tokens/<tokenAddress>` — detail token & pair
+- `GET /token-profiles/latest/v1` — token baru yang listing
+- `GET /latest/dex/pairs/solana/<pairAddress>` — detail pair spesifik
+- Rate limit: ~300 req/menit untuk endpoint pair data, ~60 req/menit untuk endpoint profile/boost. Wajib implementasi rate limiter (token bucket) + retry dengan exponential backoff saat kena 429.
+- Data yang diambil: `priceUsd`, `priceChange` (5m/1h/6h/24h), `volume` (5m/1h/6h/24h), `liquidity.usd`, `txns` (buys/sells per timeframe), `pairCreatedAt`, `fdv`, `marketCap`.
+
+### 4.2 RugCheck.xyz API (data keamanan on-chain)
+- Base: `https://api.rugcheck.xyz/v1`
+- `GET /tokens/<mint>/report` — laporan keamanan token (mint authority, freeze authority, LP lock status, top holder distribution, risk score bawaan)
+- Dipakai khusus untuk GATE 1. Cache hasil selama minimal 5 menit per token (data ini tidak berubah secepat harga).
+
+### 4.3 Data Transaksi untuk Bot Detection (opsional tapi direkomendasikan)
+- Gunakan endpoint `txns` dari DexScreener sebagai baseline (jumlah buy/sell).
+- Untuk deteksi sniper/bundling yang lebih akurat, MVP boleh pakai heuristik sederhana dari data DexScreener saja (lihat Bagian 5.2), dan tandai sebagai "estimasi" di UI. Integrasi Helius RPC untuk data block-level ditandai sebagai **Fase 2**.
+
+## 5. Logika Radar — Formula Lengkap
+
+### 5.1 GATE 1 — Security Filter (hard reject, sumber: RugCheck)
+
+Reject token bila salah satu kondisi berikut terpenuhi:
+
+| Kondisi | Aksi |
+|---|---|
+| `mintAuthority` belum null/revoked | REJECT |
+| `freezeAuthority` belum null/revoked | REJECT |
+| LP belum locked/burned (untuk token yang sudah migrasi ke Raydium) | REJECT |
+| Top 1 holder (exclude LP & burn address) > 15% supply | REJECT |
+| Top 10 holder (exclude LP & burn address) > 40% supply | REJECT |
+| RugCheck risk score bawaan berada di kategori "Danger" | REJECT |
+
+### 5.2 GATE 2 — Bot Detection (hard reject)
+
+```
+UniqueWalletRatio = UniqueBuyers_1h / TxCount_1h
+→ Jika < 0.15 → REJECT
+
+SameBlockBuyRatio = wallet_beli_di_block_sama_saat_launch / total_early_buyer   [Fase 2, butuh Helius]
+→ Jika > 0.5 → REJECT
+
+TxIntervalVariance = variansi jeda waktu antar transaksi buy dalam 15 menit terakhir
+→ Jika variansi sangat rendah (interval hampir seragam) → REJECT
+
+MVP fallback (tanpa data block-level):
+   Jika UniqueWalletRatio < 0.15 ATAU (TxCount_1h > 30 DAN UniqueWalletRatio < 0.25)
+   → REJECT, tandai sebagai "bot-suspected"
+```
+
+### 5.3 GATE 3 — Clone/Copycat Detection (hard reject)
+
+```
+NameSimilarity = Levenshtein_distance(nama/simbol token baru, nama/simbol token trending 
+                  yang sudah listing dalam 24 jam terakhir dan volume-nya jauh lebih tinggi)
+
+Jika similarity > 80% DAN volume token baru << volume token asli → REJECT
+```
+
+### 5.4 Momentum-Liquidity Divergence (hard reject tambahan)
+
+```
+PriceMomentum_30m = % perubahan harga 30 menit terakhir
+LiquidityMomentum_30m = % perubahan liquidity 30 menit terakhir
+Divergence = PriceMomentum_30m - LiquidityMomentum_30m
+
+Jika Divergence > 40 → REJECT
+```
+
+### 5.5 Dev Reputation Gate
+
+```
+DevScore = SuccessCount / (SuccessCount + RugCount + 1)
+   (dihitung dari histori token lain yang di-deploy wallet yang sama, disimpan di tabel dev_history)
+
+Jika RugCount ≥ 2 → REJECT
+Jika belum ada histori (dev baru) → DevScore = 0.5 (netral)
+```
+
+### 5.6 SCORING MODEL — untuk token yang lolos semua gate
+
+**Normalisasi:** semua sub-metrik dikonversi ke percentile rank (0–100) terhadap cohort token lain yang lolos gate dalam window waktu 24 jam berjalan. Fungsi: `pct(x, cohort) = (jumlah anggota cohort dengan nilai < x) / total anggota cohort × 100`.
+
+**A. Momentum Score (bobot 30%)**
+```
+VLR_5m  = Volume_5m / Liquidity
+VLR_1h  = Volume_1h / Liquidity
+BSR     = BuyTx / (BuyTx + SellTx)
+Accel   = (Volume_1h / (Volume_6h / 6)) - 1
+TrendQ  = R² regresi linear harga (candle 15m, 2 jam terakhir) × sign(slope)
+MarketBaseline = rata-rata price change 1h dari 50 token Solana ber-volume tertinggi saat itu
+RelativeMomentum = PriceChange_1h_token - MarketBaseline
+
+Momentum_v2 = 0.25·pct(VLR_5m) + 0.20·pct(VLR_1h) + 0.20·pct(BSR) 
+            + 0.15·pct(Accel) + 0.10·pct(TrendQ) + 0.10·pct(RelativeMomentum)
+```
+
+**B. Holder Health Score (bobot 25%)**
+```
+GrowthRate = (Holders_now - Holders_1h_ago) / Holders_1h_ago
+Gini       = koefisien Gini distribusi holder (exclude LP & burn)
+Distrib    = 1 - Gini
+Retention  = holder_1h_lalu_yang_masih_hold / Holders_1h_ago
+
+HolderHealth = 0.40·pct(GrowthRate) + 0.35·pct(Distrib) + 0.25·pct(Retention)
+```
+
+**C. Smart Money Score (bobot 15% — MVP: redistribusi ke A & B jika data belum ada)**
+```
+[Fase 2] SmartMoney = 0.5·pct(SW_Count) + 0.5·pct(SW_NetFlow)
+[MVP] Jika modul smart-money belum aktif:
+   Momentum_v2 bobot naik ke 0.35, HolderHealth bobot naik ke 0.30
+```
+
+**D. Narrative Score (bobot 10% — opsional, aktif jika modul sosial tersedia)**
+```
+[Fase 2] Narrative = 0.6·pct(MentionAccel) + 0.4·pct(Authenticity)
+[MVP] Bobot 0 jika modul belum aktif, redistribusi proporsional ke A, B
+```
+
+**E. Liquidity Stability Multiplier**
+```
+LiqTrend = (Liquidity_now - Liquidity_30m_ago) / Liquidity_30m_ago
+LiqSlope = regresi linear liquidity 6 candle terakhir (interval 5m)
+
+LiquidityStabilityMultiplier = pct(LiqSlope)/100 
+   dikali 0.2 jika LiqTrend < -10%, dikali 1.0 jika LiqTrend ≥ -10%
+```
+
+**F. Wash Trading Penalty**
+```
+UniqueWalletRatio (dari 5.2)
+< 0.15        → WashPenalty = 0.4
+0.15–0.30     → WashPenalty = 0.75
+≥ 0.30        → WashPenalty = 1.0
+```
+
+**G. Confidence Multiplier**
+```
+Confidence = min(1, TokenAge_menit/30) × min(1, TxCount_1h/50) × DataCompleteness
+DataCompleteness = 1 jika semua sumber data berhasil fetch; turun proporsional jika ada yang gagal
+```
+
+**Formula Komposit Final**
+```
+RawScore = (bobot A)·Momentum_v2 + (bobot B)·HolderHealth 
+         + (bobot C)·SmartMoney + (bobot D)·Narrative
+
+FinalScore = RawScore × WashPenalty × LiquidityStabilityMultiplier × Confidence
+```
+
+### 5.7 Kategori Output
+
+| FinalScore | Confidence | Label |
+|---|---|---|
+| ≥ 80 | ≥ 0.7 | High Priority Watch |
+| 60–79 | ≥ 0.5 | Watchlist |
+| < 60 atau confidence < 0.4 | — | Diabaikan (tetap disimpan di log, tidak ditampilkan di dashboard utama) |
+
+## 6. Skema Database
+
+```sql
+-- Snapshot skor per token per waktu (time-series, insert-only, jangan overwrite)
+CREATE TABLE token_snapshots (
+  id SERIAL PRIMARY KEY,
+  token_address TEXT NOT NULL,
+  pair_address TEXT NOT NULL,
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
+  age_minutes INTEGER,
+  price_usd NUMERIC,
+  liquidity_usd NUMERIC,
+  volume_5m NUMERIC, volume_1h NUMERIC, volume_6h NUMERIC, volume_24h NUMERIC,
+  buy_tx_1h INTEGER, sell_tx_1h INTEGER,
+  holder_count INTEGER,
+  momentum_score NUMERIC,
+  holder_health_score NUMERIC,
+  smart_money_score NUMERIC,
+  narrative_score NUMERIC,
+  wash_penalty NUMERIC,
+  liquidity_stability_multiplier NUMERIC,
+  confidence NUMERIC,
+  final_score NUMERIC,
+  gate_status TEXT, -- 'passed' | 'rejected_security' | 'rejected_bot' | 'rejected_clone' | 'rejected_divergence' | 'rejected_dev'
+  reject_reason TEXT
+);
+
+CREATE TABLE dev_history (
+  deployer_wallet TEXT PRIMARY KEY,
+  success_count INTEGER DEFAULT 0,
+  rug_count INTEGER DEFAULT 0,
+  last_updated TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE watchlist (
+  token_address TEXT PRIMARY KEY,
+  first_detected TIMESTAMPTZ DEFAULT now(),
+  status TEXT DEFAULT 'active', -- 'active' | 'archived'
+  last_final_score NUMERIC,
+  last_label TEXT
+);
+
+CREATE INDEX idx_snapshots_token_time ON token_snapshots(token_address, timestamp);
+CREATE INDEX idx_snapshots_score ON token_snapshots(final_score DESC);
+```
+
+## 7. Tech Stack (rekomendasi untuk Replit)
+
+- **Backend:** Node.js + Express (atau Python + FastAPI — pilih salah satu, jangan campur)
+- **Database:** PostgreSQL (Replit menyediakan Postgres bawaan) — hindari SQLite untuk time-series dengan volume tulis tinggi
+- **Scheduler:** `node-cron` (atau `APScheduler` di Python) untuk polling berkala; pisahkan job "scan token baru" (interval lebih jarang, misal tiap 2 menit) dari job "refresh skor watchlist aktif" (interval lebih rapat, misal tiap 20–30 detik)
+- **Frontend:** React + Tailwind — dashboard tabel/kartu dengan sorting berdasarkan FinalScore, filter berdasarkan label, dan detail breakdown skor per token saat diklik
+- **Rate limiting client:** implementasi token bucket sendiri untuk kedua API (DexScreener & RugCheck), jangan andalkan library eksternal yang belum tentu ter-maintain
+
+## 8. Kebutuhan UI/UX Dashboard
+
+- **Halaman utama:** tabel/kartu token urut FinalScore, kolom: nama token, FinalScore, label kategori, confidence, umur token, liquidity, volume 1h, tombol expand untuk breakdown.
+- **Detail token:** breakdown tiap komponen skor (Momentum, HolderHealth, SmartMoney, Narrative) dalam bentuk bar/radar chart, riwayat skor time-series (line chart), status tiap gate (lolos/gagal beserta alasan).
+- **Banner disclaimer permanen** di bagian atas dashboard: alat ini adalah bantuan screening, bukan jaminan profit, risiko sepenuhnya di pengguna.
+- **Halaman log rejected tokens** (opsional tapi berguna untuk audit formula): daftar token yang di-reject beserta gate mana yang gagal — berguna untuk validasi/tuning formula ke depan.
+
+## 9. Non-Functional Requirements
+
+- Tangani rate limit 429 dari kedua API dengan retry + backoff, jangan sampai job scheduler crash.
+- Semua pemanggilan API eksternal dibungkus try-catch, kegagalan satu token tidak boleh menghentikan proses scan token lain.
+- Logging terstruktur untuk setiap keputusan gate (agar bisa diaudit/backtest nanti).
+- Desain schema dari awal harus mendukung penambahan kolom untuk Fase 2 (smart money, narrative) tanpa migrasi besar.
+
+## 10. Scope MVP vs Fase 2
+
+**MVP (bangun ini dulu):**
+- Gate 1 (Security via RugCheck), Gate 2 versi fallback (heuristik DexScreener), Gate 3, Divergence check, Dev reputation gate versi sederhana (histori disimpan manual dari hasil scan sendiri, mulai kosong)
+- Momentum Score + Holder Health Score penuh (bobot didistribusikan ulang tanpa Smart Money & Narrative)
+- Dashboard dasar + detail breakdown
+- Scheduler polling dua tingkat (scan baru + refresh watchlist)
+
+**Fase 2:**
+- Integrasi Helius RPC untuk bundling/sniper detection block-level yang presisi
+- Modul Smart Money wallet tagging (butuh tracking histori PnL wallet)
+- Modul Narrative/social listening (Twitter/Telegram API)
+- Backtest engine otomatis + auto-tuning bobot (logistic regression dari data historis)
+
+## 11. Catatan Penting untuk Replit AI Agent
+
+Saat membangun ini, prioritaskan urutan berikut agar setiap tahap bisa dites terpisah sebelum lanjut:
+1. Setup koneksi & rate limiter ke DexScreener API, tampilkan data mentah dulu tanpa filter apapun.
+2. Implementasi Gate 1 (RugCheck integration), tes dengan beberapa token yang sudah diketahui statusnya.
+3. Implementasi Gate 2 versi fallback, Gate 3, Divergence check.
+4. Implementasi formula Scoring Model lengkap sesuai Bagian 5.6–5.7.
+5. Baru bangun dashboard di atas data yang sudah benar.
+
+Jangan bangun UI dashboard terlebih dahulu sebelum logika gate & scoring tervalidasi dengan data nyata — risiko terbesar proyek ini ada di akurasi filter, bukan di tampilan.
+
+## 12. Disclaimer
+
+Sistem ini adalah alat bantu screening berbasis data on-chain dan pola historis, **bukan sinyal investasi dan tidak menjamin profit**. Pasar meme coin memiliki risiko sangat tinggi termasuk kehilangan seluruh modal. Formula dan bobot di dokumen ini adalah hipotesis awal yang perlu divalidasi lewat backtest sebelum dipakai untuk keputusan finansial nyata.
