@@ -12,6 +12,8 @@ const {
   outcomeHorizon,
   precisionReport,
 } = require("./evaluator");
+const { CONTRACT } = require("./contract");
+const { loadBenchmarkFixtures, runBaselineBenchmark } = require("./benchmark");
 const {
   discoverCandidates,
   fetchTokenPairs,
@@ -451,6 +453,18 @@ app.get("/api/health", async (req, res) => {
     try { await query("SELECT 1"); db = "connected"; } catch { db = "error"; }
   }
   res.json({ ok: db === "connected", db, modelVersion: MODEL_VERSION, startedAt });
+});
+
+app.get("/api/contract", (req, res) => {
+  res.json({ ...CONTRACT, dataMode: "VERSIONED_PRODUCT_CONTRACT" });
+});
+
+app.get("/api/benchmark", (req, res) => {
+  try {
+    res.json({ ...runBaselineBenchmark(loadBenchmarkFixtures()), dataMode: "BENCHMARK_FIXTURES" });
+  } catch (error) {
+    res.status(500).json({ error: error.message, code: "BENCHMARK_INVALID" });
+  }
 });
 
 app.get("/api/radar", async (req, res) => {

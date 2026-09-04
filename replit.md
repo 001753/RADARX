@@ -26,6 +26,14 @@ npm test
 npm run build
 ```
 
+Phase 0 contract dan benchmark:
+
+```bash
+npm run benchmark
+```
+
+Contract aktif dapat diaudit melalui `/api/contract`, sedangkan baseline benchmark fixture tersedia melalui `/api/benchmark`.
+
 ## Mode sistem
 
 - **Live database:** dashboard membaca snapshot yang tersimpan dari DexScreener, RugCheck, dan RPC Solana publik.

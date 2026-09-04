@@ -1,0 +1,126 @@
+{
+  "benchmarkVersion": "benchmark-v1.2",
+  "contractVersion": "precision-contract-v1.2",
+  "generatedFor": "phase-0-contract-validation",
+  "scenarios": [
+    {
+      "id": "organic-alpha",
+      "category": "organic_hype",
+      "alertAt": "2026-01-01T00:00:00.000Z",
+      "event": { "alertAt": "2026-01-01T00:00:00.000Z", "alertPrice": 1, "alertLiquidity": 1000 },
+      "features": { "volume1h": 240000, "liquidityUsd": 100000, "buyTx1h": 120, "uniqueBuyerRatio": 0.48 },
+      "snapshots": [
+        { "observedAt": "2026-01-01T00:30:00.000Z", "priceUsd": 1.15, "liquidityUsd": 1050 },
+        { "observedAt": "2026-01-01T01:00:00.000Z", "priceUsd": 1.35, "liquidityUsd": 1100 },
+        { "observedAt": "2026-01-02T00:00:00.000Z", "priceUsd": 1.18, "liquidityUsd": 900 }
+      ],
+      "expected": { "decision": "WATCHLIST", "HYPE_1H": "HIT", "SURVIVAL": "SURVIVED", "RISK_EVENT": "NO_EVENT" }
+    },
+    {
+      "id": "spike-crash",
+      "category": "spike_then_crash",
+      "alertAt": "2026-01-02T00:00:00.000Z",
+      "event": { "alertAt": "2026-01-02T00:00:00.000Z", "alertPrice": 1, "alertLiquidity": 1200 },
+      "features": { "volume1h": 280000, "liquidityUsd": 90000, "buyTx1h": 150, "uniqueBuyerRatio": 0.32 },
+      "snapshots": [
+        { "observedAt": "2026-01-02T00:20:00.000Z", "priceUsd": 1.18, "liquidityUsd": 1250 },
+        { "observedAt": "2026-01-02T01:00:00.000Z", "priceUsd": 0.72, "liquidityUsd": 1150 },
+        { "observedAt": "2026-01-03T00:00:00.000Z", "priceUsd": 0.61, "liquidityUsd": 1000 }
+      ],
+      "expected": { "decision": "NO_CALL", "HYPE_1H": "MISS", "SURVIVAL": "SURVIVED", "RISK_EVENT": "NO_EVENT" }
+    },
+    {
+      "id": "liquidity-rug",
+      "category": "rugpull",
+      "alertAt": "2026-01-03T00:00:00.000Z",
+      "event": { "alertAt": "2026-01-03T00:00:00.000Z", "alertPrice": 1, "alertLiquidity": 1000 },
+      "features": { "volume1h": 260000, "liquidityUsd": 85000, "buyTx1h": 140, "uniqueBuyerRatio": 0.28 },
+      "snapshots": [
+        { "observedAt": "2026-01-03T00:20:00.000Z", "priceUsd": 1.05, "liquidityUsd": 850 },
+        { "observedAt": "2026-01-03T01:00:00.000Z", "priceUsd": 0.12, "liquidityUsd": 250, "riskEvent": true },
+        { "observedAt": "2026-01-04T00:00:00.000Z", "priceUsd": 0.04, "liquidityUsd": 100, "riskEvent": true }
+      ],
+      "expected": { "decision": "REJECTED", "HYPE_1H": "RISK_EVENT", "SURVIVAL": "RISK_EVENT", "RISK_EVENT": "RISK_EVENT" }
+    },
+    {
+      "id": "wash-flow",
+      "category": "bot_wash",
+      "alertAt": "2026-01-04T00:00:00.000Z",
+      "event": { "alertAt": "2026-01-04T00:00:00.000Z", "alertPrice": 1, "alertLiquidity": 1000 },
+      "features": { "volume1h": 300000, "liquidityUsd": 70000, "buyTx1h": 220, "uniqueBuyerRatio": 0.08, "flowEvidenceConfirmed": true },
+      "snapshots": [
+        { "observedAt": "2026-01-04T01:00:00.000Z", "priceUsd": 1.1, "liquidityUsd": 950 },
+        { "observedAt": "2026-01-05T00:00:00.000Z", "priceUsd": 0.9, "liquidityUsd": 900 }
+      ],
+      "expected": { "decision": "REJECTED", "HYPE_1H": "MISS", "SURVIVAL": "SURVIVED", "RISK_EVENT": "NO_EVENT" }
+    },
+    {
+      "id": "metadata-clone",
+      "category": "clone_copycat",
+      "alertAt": "2026-01-05T00:00:00.000Z",
+      "event": { "alertAt": "2026-01-05T00:00:00.000Z", "alertPrice": 1, "alertLiquidity": 1500 },
+      "features": { "volume1h": 190000, "liquidityUsd": 80000, "buyTx1h": 90, "uniqueBuyerRatio": 0.4, "cloneSimilarity": 0.94, "cloneEvidenceConfirmed": true },
+      "snapshots": [
+        { "observedAt": "2026-01-05T01:00:00.000Z", "priceUsd": 1.08, "liquidityUsd": 1450 },
+        { "observedAt": "2026-01-06T00:00:00.000Z", "priceUsd": 0.96, "liquidityUsd": 1300 }
+      ],
+      "expected": { "decision": "REJECTED", "HYPE_1H": "MISS", "SURVIVAL": "SURVIVED", "RISK_EVENT": "NO_EVENT" }
+    },
+    {
+      "id": "thin-liquidity",
+      "category": "low_liquidity",
+      "alertAt": "2026-01-06T00:00:00.000Z",
+      "event": { "alertAt": "2026-01-06T00:00:00.000Z", "alertPrice": 1, "alertLiquidity": 100 },
+      "features": { "volume1h": 22000, "liquidityUsd": 2500, "buyTx1h": 35, "uniqueBuyerRatio": 0.5 },
+      "snapshots": [
+        { "observedAt": "2026-01-06T01:00:00.000Z", "priceUsd": 1.35, "liquidityUsd": 30, "riskEvent": true },
+        { "observedAt": "2026-01-07T00:00:00.000Z", "priceUsd": 0.9, "liquidityUsd": 25, "riskEvent": true }
+      ],
+      "expected": { "decision": "NO_CALL", "HYPE_1H": "RISK_EVENT", "SURVIVAL": "RISK_EVENT", "RISK_EVENT": "RISK_EVENT" }
+    },
+    {
+      "id": "slow-mover",
+      "category": "slow_mover",
+      "alertAt": "2026-01-07T00:00:00.000Z",
+      "event": { "alertAt": "2026-01-07T00:00:00.000Z", "alertPrice": 1, "alertLiquidity": 2000 },
+      "features": { "volume1h": 60000, "liquidityUsd": 50000, "buyTx1h": 55, "uniqueBuyerRatio": 0.44 },
+      "snapshots": [
+        { "observedAt": "2026-01-07T01:00:00.000Z", "priceUsd": 1.08, "liquidityUsd": 2050 },
+        { "observedAt": "2026-01-08T00:00:00.000Z", "priceUsd": 1.12, "liquidityUsd": 2200 }
+      ],
+      "expected": { "decision": "NO_CALL", "HYPE_1H": "MISS", "SURVIVAL": "SURVIVED", "RISK_EVENT": "NO_EVENT" }
+    },
+    {
+      "id": "provider-failure",
+      "category": "source_failure",
+      "alertAt": "2026-01-08T00:00:00.000Z",
+      "event": { "alertAt": "2026-01-08T00:00:00.000Z", "alertPrice": null, "alertLiquidity": null },
+      "features": { "volume1h": null, "liquidityUsd": null, "buyTx1h": null, "uniqueBuyerRatio": null, "providerStatus": "error" },
+      "snapshots": [],
+      "expected": { "decision": "QUARANTINED", "HYPE_1H": "PENDING", "SURVIVAL": "PENDING", "RISK_EVENT": "PENDING" }
+    },
+    {
+      "id": "stale-market",
+      "category": "stale_data",
+      "alertAt": "2026-01-09T00:00:00.000Z",
+      "event": { "alertAt": "2026-01-09T00:00:00.000Z", "alertPrice": 1, "alertLiquidity": 1000 },
+      "features": { "volume1h": 200000, "liquidityUsd": 80000, "buyTx1h": 100, "uniqueBuyerRatio": 0.4, "freshnessSeconds": 900 },
+      "snapshots": [
+        { "observedAt": "2026-01-09T00:10:00.000Z", "priceUsd": 1.4, "liquidityUsd": 1050 }
+      ],
+      "expected": { "decision": "NO_CALL", "HYPE_1H": "PENDING", "SURVIVAL": "PENDING", "RISK_EVENT": "PENDING" }
+    },
+    {
+      "id": "conflicting-authority",
+      "category": "source_conflict",
+      "alertAt": "2026-01-10T00:00:00.000Z",
+      "event": { "alertAt": "2026-01-10T00:00:00.000Z", "alertPrice": 1, "alertLiquidity": 1100 },
+      "features": { "volume1h": 210000, "liquidityUsd": 90000, "buyTx1h": 105, "uniqueBuyerRatio": 0.41, "sourceConflict": true },
+      "snapshots": [
+        { "observedAt": "2026-01-10T01:00:00.000Z", "priceUsd": 1.1, "liquidityUsd": 1080 },
+        { "observedAt": "2026-01-11T00:00:00.000Z", "priceUsd": 1.05, "liquidityUsd": 1050 }
+      ],
+      "expected": { "decision": "QUARANTINED", "HYPE_1H": "MISS", "SURVIVAL": "SURVIVED", "RISK_EVENT": "NO_EVENT" }
+    }
+  ]
+}

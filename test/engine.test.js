@@ -2,6 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { calculateScore, evaluateGates, normalizedSimilarity } = require("../server/engine");
 const { outcomeHorizon, precisionReport, wilsonLowerBound } = require("../server/evaluator");
+const { CONTRACT, validateContract } = require("../server/contract");
+const { loadBenchmarkFixtures, validateBenchmarkFixtures, runBaselineBenchmark } = require("../server/benchmark");
 
 test("unknown security evidence never becomes pass", () => {
   const gates = evaluateGates({ buyTx1h: 20, uniqueBuyers1h: 10, ageMinutes: 40, liquidityUsd: 10000 });
@@ -58,4 +60,19 @@ test("precision report refuses small samples and exposes conservative bound", ()
   assert.equal(report.status, "INSUFFICIENT_DATA");
   assert.equal(report.horizons[0].total, 30);
   assert.ok(wilsonLowerBound(24, 30) < 0.8);
+});
+
+test("precision contract is versioned, normalized, and complete", () => {
+  assert.equal(validateContract(), true);
+  assert.equal(CONTRACT.contractVersion, "precision-contract-v1.2");
+  assert.equal(Object.values(CONTRACT.weights).reduce((sum, value) => sum + value, 0), 1);
+});
+
+test("phase 0 benchmark covers all required failure modes and has no label mismatch", () => {
+  const fixtures = loadBenchmarkFixtures();
+  const validation = validateBenchmarkFixtures(fixtures);
+  assert.equal(validation.scenarioCount, 10);
+  const report = runBaselineBenchmark(fixtures);
+  assert.deepEqual(report.expectedMismatches, []);
+  assert.ok(report.baselines.volume_only.measured > 0);
 });

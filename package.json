@@ -7,8 +7,9 @@
     "dev": "node server/index.js",
     "build": "vite build",
     "db:push": "node server/migrate.js",
-    "check": "node --check server/index.js && node --check server/engine.js && node --check server/providers.js",
-    "test": "node --test test/*.test.js"
+    "check": "node --check server/index.js && node --check server/engine.js && node --check server/providers.js && node --check server/contract.js && node --check server/benchmark.js",
+    "test": "node --test test/*.test.js",
+    "benchmark": "node server/benchmark.js"
   },
   "repository": {
     "type": "git",

@@ -1,0 +1,89 @@
+{
+  "contractVersion": "precision-contract-v1.2",
+  "modelVersion": "radar-v1.2.0",
+  "target": {
+    "precision": 0.7,
+    "coverage": 0.05,
+    "minOutcomeSamplesPerHorizon": 30,
+    "wilsonZ": 1.96,
+    "maxHighPriorityAlertsPerHour": 3
+  },
+  "eligibility": {
+    "minimumAgeMinutes": 30,
+    "minimumBuyTransactions": 10,
+    "minimumCohortSize": 30,
+    "freshnessLimitSeconds": 120
+  },
+  "weights": {
+    "momentum": 0.5455,
+    "holderHealth": 0.4545
+  },
+  "outcomes": {
+    "HYPE_1H": {
+      "horizonMinutes": 60,
+      "targetNetReturn": 0.3,
+      "maxDrawdown": 0.2,
+      "liquidityFloorRatio": 0.4,
+      "successLabel": "HIT",
+      "failureLabel": "MISS"
+    },
+    "HYPE_6H": {
+      "horizonMinutes": 360,
+      "targetNetReturn": 0.5,
+      "maxDrawdown": 0.3,
+      "liquidityFloorRatio": 0.4,
+      "successLabel": "HIT",
+      "failureLabel": "MISS"
+    },
+    "HYPE_24H": {
+      "horizonMinutes": 1440,
+      "targetNetReturn": 0.75,
+      "maxDrawdown": 0.4,
+      "liquidityFloorRatio": 0.4,
+      "successLabel": "HIT",
+      "failureLabel": "MISS"
+    },
+    "SURVIVAL": {
+      "horizonMinutes": 1440,
+      "liquidityFloorRatio": 0.4,
+      "riskEventLabel": "RISK_EVENT",
+      "successLabel": "SURVIVED"
+    },
+    "RISK_EVENT": {
+      "horizonMinutes": 1440,
+      "liquidityFloorRatio": 0.4,
+      "eventTypes": [
+        "LIQUIDITY_COLLAPSE",
+        "TRADABILITY_FAILURE",
+        "SECURITY_RISK"
+      ]
+    }
+  },
+  "benchmark": {
+    "primaryHorizon": "HYPE_1H",
+    "requiredCategories": [
+      "organic_hype",
+      "spike_then_crash",
+      "rugpull",
+      "bot_wash",
+      "clone_copycat",
+      "low_liquidity",
+      "slow_mover",
+      "source_failure",
+      "stale_data",
+      "source_conflict"
+    ],
+    "baselines": [
+      "volume_only",
+      "vlr_only",
+      "top_volume",
+      "random_control"
+    ],
+    "baselineRules": {
+      "volumeOnlyMinVolume1h": 150000,
+      "vlrOnlyMinVlr1h": 1.5,
+      "topVolumeMinVolume1h": 200000,
+      "randomControlModulo": 2
+    }
+  }
+}

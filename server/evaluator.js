@@ -1,8 +1,16 @@
-const OUTCOME_CONFIG = Object.freeze({
-  HYPE_1H: { minutes: 60, targetReturn: 0.30, maxDrawdown: 0.20 },
-  HYPE_6H: { minutes: 360, targetReturn: 0.50, maxDrawdown: 0.30 },
-  HYPE_24H: { minutes: 1440, targetReturn: 0.75, maxDrawdown: 0.40 },
-});
+const { CONTRACT } = require("./contract");
+
+const OUTCOME_CONFIG = Object.freeze(Object.fromEntries(
+  ["HYPE_1H", "HYPE_6H", "HYPE_24H"].map((name) => [
+    name,
+    {
+      minutes: CONTRACT.outcomes[name].horizonMinutes,
+      targetReturn: CONTRACT.outcomes[name].targetNetReturn,
+      maxDrawdown: CONTRACT.outcomes[name].maxDrawdown,
+      liquidityFloorRatio: CONTRACT.outcomes[name].liquidityFloorRatio,
+    },
+  ]),
+));
 
 function finite(value) {
   return Number.isFinite(Number(value)) ? Number(value) : null;
@@ -44,7 +52,7 @@ function outcomeHorizon(event, horizon, snapshots, config = OUTCOME_CONFIG[horiz
     const returnValue = point.price / startPrice - 1;
     mfe = Math.max(mfe, returnValue);
     mae = Math.min(mae, returnValue);
-    if (point.liquidity !== null && event.alertLiquidity !== null && point.liquidity < event.alertLiquidity * 0.4) riskEvent = true;
+    if (point.liquidity !== null && finite(event.alertLiquidity) !== null && point.liquidity < event.alertLiquidity * config.liquidityFloorRatio) riskEvent = true;
     if (!hit && returnValue >= config.targetReturn && mae >= -config.maxDrawdown) {
       hit = true;
       hitAt = point.observedAt;
@@ -65,7 +73,27 @@ function outcomeHorizon(event, horizon, snapshots, config = OUTCOME_CONFIG[horiz
   };
 }
 
-function precisionReport(outcomes = [], targetPrecision = 0.7, minSample = 30) {
+function survivalOutcome(event, snapshots, config = CONTRACT.outcomes.SURVIVAL) {
+  if (!event.alertAt || finite(event.alertLiquidity) === null) return { status: "pending", label: null, reason: "ALERT_LIQUIDITY_OR_TIME_MISSING" };
+  const alertTime = new Date(event.alertAt).getTime();
+  const endTime = alertTime + config.horizonMinutes * 60000;
+  const path = snapshots
+    .map((snapshot) => ({
+      observedAt: snapshot.observedAt || snapshot.observed_at,
+      price: finite(snapshot.priceUsd ?? snapshot.price_usd),
+      liquidity: finite(snapshot.liquidityUsd ?? snapshot.liquidity_usd),
+      riskEvent: snapshot.riskEvent === true,
+    }))
+    .filter((snapshot) => new Date(snapshot.observedAt).getTime() >= alertTime && new Date(snapshot.observedAt).getTime() <= endTime)
+    .sort((a, b) => new Date(a.observedAt) - new Date(b.observedAt));
+  if (!path.length) return { status: "pending", label: null, reason: "HORIZON_DATA_NOT_READY" };
+  const collapse = path.some((point) => point.riskEvent || (point.liquidity !== null && point.liquidity < event.alertLiquidity * config.liquidityFloorRatio));
+  const complete = new Date(path[path.length - 1].observedAt).getTime() >= endTime;
+  if (!complete) return { status: "pending", label: null, reason: "HORIZON_DATA_NOT_COMPLETE", observedUntil: path[path.length - 1].observedAt };
+  return { status: collapse ? "risk_event" : "survived", label: collapse ? "RISK_EVENT" : "SURVIVED", observedUntil: path[path.length - 1].observedAt };
+}
+
+function precisionReport(outcomes = [], targetPrecision = CONTRACT.target.precision, minSample = CONTRACT.target.minOutcomeSamplesPerHorizon) {
   const horizons = Object.keys(OUTCOME_CONFIG).map((horizon) => {
     const rows = outcomes.filter((outcome) => outcome.horizon === horizon && ["HIT", "MISS", "RISK_EVENT"].includes(outcome.label));
     const successes = rows.filter((outcome) => outcome.label === "HIT").length;
@@ -95,5 +123,6 @@ module.exports = {
   OUTCOME_CONFIG,
   wilsonLowerBound,
   outcomeHorizon,
+  survivalOutcome,
   precisionReport,
 };
