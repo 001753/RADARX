@@ -218,7 +218,7 @@ function calculateScore(input, cohort = {}) {
   const components = scoreComponents(input, cohort);
   const gates = evaluateGates(input);
   const rejected = gates.find((decision) => decision.status === "reject");
-  const unknownCritical = gates.some((decision) => decision.status === "unknown" && ["security", "flow_quality", "deployer"].includes(decision.name));
+  const unknownAny = gates.some((decision) => decision.status === "unknown");
   const componentValues = { momentum: components.momentum, holderHealth: components.holderHealth };
   const available = Object.entries(componentValues).filter(([, value]) => value !== null);
   const scorePending = available.length < 2 || available.some(([, value]) => value === null);
@@ -240,7 +240,7 @@ function calculateScore(input, cohort = {}) {
   if (rejected) {
     label = "REJECTED";
     scoreStatus = "blocked";
-  } else if (unknownCritical) {
+  } else if (unknownAny) {
     label = "QUARANTINED";
     scoreStatus = "unknown";
   } else if (signalScore !== null && evidenceConfidence >= 0.7 && signalScore >= 80) {

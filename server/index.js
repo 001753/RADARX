@@ -5,7 +5,13 @@ const { Pool } = require("pg");
 const {
   calculateScore,
   MODEL_VERSION,
+  computeGini,
 } = require("./engine");
+const {
+  OUTCOME_CONFIG,
+  outcomeHorizon,
+  precisionReport,
+} = require("./evaluator");
 const {
   discoverCandidates,
   fetchTokenPairs,
@@ -107,7 +113,7 @@ async function saveScanToken(pair, rugResult, mode = "live") {
     ...pair,
     ageMinutes: age,
     security,
-    dataQuality: sourceDataQuality([{ ok: true }, rugResult]),
+    dataQuality: sourceDataQuality([rugResult, supplyResult, largestResult, accountResult]),
     liquiditySlopePct: null,
     marketBaseline1h: null,
     marketLiquidityTrend: null,
@@ -142,6 +148,22 @@ async function saveScanToken(pair, rugResult, mode = "live") {
     if (pair.raw) await saveObservation(client, address, { provider: "dexscreener", endpoint: `/latest/dex/tokens/${address}`, ok: true, payload: pair.raw, hash: null, error: null });
     if (rugResult) await saveObservation(client, address, rugResult);
     for (const rpcResult of [supplyResult, largestResult, accountResult]) await saveObservation(client, address, rpcResult);
+    const supplyAmount = Number(supplyResult.payload?.result?.value?.amount);
+    const largestAccounts = Array.isArray(largestResult.payload?.result?.value) ? largestResult.payload.result.value : [];
+    const topHolderDistribution = supplyAmount > 0
+      ? largestAccounts.map((account) => Number(account.amount) / supplyAmount).filter(Number.isFinite)
+      : [];
+    await client.query(
+      `INSERT INTO holder_snapshots (token_address, observed_at, holder_count, distribution, gini, data_quality)
+       VALUES ($1, now(), $2, $3, $4, $5)`,
+      [
+        address,
+        null,
+        JSON.stringify(topHolderDistribution),
+        computeGini(topHolderDistribution),
+        JSON.stringify({ source: "solana", coverage: topHolderDistribution.length ? "top_accounts_only" : "unavailable", accountCount: topHolderDistribution.length }),
+      ],
+    );
     await client.query(
       `INSERT INTO market_snapshots
         (token_address, pair_address, observed_at, price_usd, liquidity_usd, volume_5m, volume_1h, volume_6h, volume_24h, buy_tx_1h, sell_tx_1h, data_quality)
@@ -168,6 +190,15 @@ async function saveScanToken(pair, rugResult, mode = "live") {
          VALUES ($1, $2, now(), 'active', $3, $4, $5)
          ON CONFLICT (token_address) DO UPDATE SET pair_address = EXCLUDED.pair_address, last_refresh_at = now(), status = 'active', last_final_score = EXCLUDED.last_final_score, last_label = EXCLUDED.last_label, last_evidence = EXCLUDED.last_evidence`,
         [address, pair.pairAddress, result.signalScore, result.label, JSON.stringify(result.evidence)],
+      );
+      await client.query(
+        `INSERT INTO alert_events (token_address, pair_address, alert_type, alert_at, dedupe_key, status, evidence)
+         SELECT $1, $2, $3, now(), $4, 'paper', $5
+         WHERE NOT EXISTS (
+           SELECT 1 FROM alert_events
+           WHERE token_address = $1 AND alert_type = $3 AND alert_at > now() - interval '6 hours'
+         )`,
+        [address, pair.pairAddress, result.label, `${address}:${result.label}:${Math.floor(Date.now() / 21600000)}`, JSON.stringify({ ...result.evidence, score: result.signalScore, confidence: result.evidenceConfidence })],
       );
     } else {
       await client.query(`UPDATE watchlist SET status = 'archived', last_refresh_at = now(), last_label = $2 WHERE token_address = $1`, [address, result.label]);
@@ -232,7 +263,8 @@ async function scanLive(mode = "live") {
     `UPDATE scan_runs SET finished_at = now(), candidates_seen = $1, observations_saved = $2, passed = $3, rejected = $4, unknown = $5, errors = $6, summary = $7 WHERE id = $8`,
     [candidatesSeen, observationsSaved, passed, rejected, unknown, errors, JSON.stringify({ durationMs: Date.now() - started }), run.rows[0].id],
   );
-  return { runId: run.rows[0].id, candidatesSeen, observationsSaved, passed, rejected, unknown, errors, durationMs: Date.now() - started, output };
+  const outcomes = await labelDueOutcomes();
+  return { runId: run.rows[0].id, candidatesSeen, observationsSaved, passed, rejected, unknown, errors, durationMs: Date.now() - started, outcomes, output };
 }
 
 async function refreshWatchlist() {
@@ -254,11 +286,53 @@ async function refreshWatchlist() {
   return { refreshed };
 }
 
+async function labelDueOutcomes() {
+  if (!pool) return { labeled: 0 };
+  const alerts = await query(
+    `SELECT a.id, a.token_address AS "tokenAddress", a.pair_address AS "pairAddress", a.alert_type AS "alertType",
+            a.alert_at AS "alertAt", m.price_usd AS "alertPrice", m.liquidity_usd AS "alertLiquidity"
+     FROM alert_events a
+     LEFT JOIN LATERAL (
+       SELECT price_usd, liquidity_usd FROM market_snapshots
+       WHERE token_address = a.token_address AND observed_at >= a.alert_at
+       ORDER BY observed_at ASC LIMIT 1
+     ) m ON true
+     WHERE a.status = 'paper'
+     ORDER BY a.alert_at ASC
+     LIMIT 100`,
+  );
+  let labeled = 0;
+  for (const alert of alerts.rows) {
+    const snapshots = await query(
+      `SELECT observed_at AS "observedAt", price_usd AS "priceUsd", liquidity_usd AS "liquidityUsd"
+       FROM market_snapshots WHERE token_address = $1 AND observed_at >= $2 ORDER BY observed_at ASC`,
+      [alert.tokenAddress, alert.alertAt],
+    );
+    let completed = 0;
+    for (const horizon of Object.keys(OUTCOME_CONFIG)) {
+      const outcome = outcomeHorizon(alert, horizon, snapshots.rows);
+      if (outcome.status === "pending") continue;
+      await query(
+        `INSERT INTO outcome_labels (alert_event_id, horizon, label, return_path, mfe, mae, liquidity_path, labeled_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+         ON CONFLICT (alert_event_id, horizon) DO UPDATE SET label = EXCLUDED.label, return_path = EXCLUDED.return_path, mfe = EXCLUDED.mfe, mae = EXCLUDED.mae, liquidity_path = EXCLUDED.liquidity_path, labeled_at = now()`,
+        [alert.id, horizon, outcome.label, JSON.stringify(outcome.returnPath), outcome.mfe, outcome.mae, JSON.stringify(outcome.liquidityPath)],
+      );
+      completed += 1;
+      labeled += 1;
+    }
+    if (completed === Object.keys(OUTCOME_CONFIG).length) await query(`UPDATE alert_events SET status = 'labeled' WHERE id = $1`, [alert.id]);
+  }
+  return { labeled };
+}
+
 async function runScheduledJob(job) {
   if (scanLock) return { skipped: true, reason: "scan_in_progress" };
   scanLock = true;
   try {
-    return job === "watchlist" ? await refreshWatchlist() : await scanLive("scheduled");
+    const result = job === "watchlist" ? await refreshWatchlist() : await scanLive("scheduled");
+    if (job === "watchlist") result.outcomes = await labelDueOutcomes();
+    return result;
   } finally {
     scanLock = false;
   }
@@ -426,6 +500,26 @@ app.post("/api/scan", async (req, res) => {
 app.get("/api/scan-runs", async (req, res) => {
   if (!requireDb(res)) return;
   const result = await query(`SELECT id, started_at AS "startedAt", finished_at AS "finishedAt", mode, candidates_seen AS "candidatesSeen", observations_saved AS "observationsSaved", passed, rejected, unknown, errors FROM scan_runs ORDER BY started_at DESC LIMIT 20`);
+  res.json({ items: result.rows });
+});
+
+app.get("/api/precision-report", async (req, res) => {
+  if (!requireDb(res)) return;
+  const result = await query(`SELECT horizon, label, mfe, mae, labeled_at AS "labeledAt" FROM outcome_labels WHERE label IS NOT NULL ORDER BY labeled_at DESC`);
+  res.json({ ...precisionReport(result.rows), dataMode: "LIVE_DATABASE" });
+});
+
+app.get("/api/alerts", async (req, res) => {
+  if (!requireDb(res)) return;
+  const result = await query(
+    `SELECT a.id, a.token_address AS "tokenAddress", t.name, t.symbol, a.alert_type AS "alertType",
+            a.alert_at AS "alertAt", a.status, a.evidence,
+            COUNT(o.id)::int AS "outcomeCount"
+     FROM alert_events a JOIN tokens t ON t.token_address = a.token_address
+     LEFT JOIN outcome_labels o ON o.alert_event_id = a.id
+     GROUP BY a.id, t.name, t.symbol
+     ORDER BY a.alert_at DESC LIMIT 100`,
+  );
   res.json({ items: result.rows });
 });
 

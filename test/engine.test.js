@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { calculateScore, evaluateGates, normalizedSimilarity } = require("../server/engine");
+const { outcomeHorizon, precisionReport, wilsonLowerBound } = require("../server/evaluator");
 
 test("unknown security evidence never becomes pass", () => {
   const gates = evaluateGates({ buyTx1h: 20, uniqueBuyers1h: 10, ageMinutes: 40, liquidityUsd: 10000 });
@@ -40,4 +41,21 @@ test("similarity is normalized and bounded", () => {
   assert.equal(normalizedSimilarity("SOL CAT", "sol-cat"), 1);
   assert.ok(normalizedSimilarity("alpha", "omega") >= 0);
   assert.ok(normalizedSimilarity("alpha", "omega") <= 1);
+});
+
+test("outcome labels stay pending until the configured horizon is complete", () => {
+  const result = outcomeHorizon(
+    { alertAt: "2026-01-01T00:00:00.000Z", alertPrice: 1, alertLiquidity: 1000 },
+    "HYPE_1H",
+    [{ observedAt: "2026-01-01T00:20:00.000Z", priceUsd: 1.4, liquidityUsd: 1000 }],
+  );
+  assert.equal(result.status, "pending");
+});
+
+test("precision report refuses small samples and exposes conservative bound", () => {
+  const outcomes = Array.from({ length: 30 }, (_, index) => ({ horizon: "HYPE_1H", label: index < 24 ? "HIT" : "MISS" }));
+  const report = precisionReport(outcomes);
+  assert.equal(report.status, "INSUFFICIENT_DATA");
+  assert.equal(report.horizons[0].total, 30);
+  assert.ok(wilsonLowerBound(24, 30) < 0.8);
 });

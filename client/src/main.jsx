@@ -138,15 +138,17 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [lastScan, setLastScan] = useState(null);
+  const [precision, setPrecision] = useState(null);
 
   async function loadLive() {
     setLoading(true);
     try {
-      const [radar, apiHealth] = await Promise.all([fetch(`${API}/radar`).then((r) => r.json()), fetch(`${API}/health`).then((r) => r.json())]);
+      const [radar, apiHealth, report] = await Promise.all([fetch(`${API}/radar`).then((r) => r.json()), fetch(`${API}/health`).then((r) => r.json()), fetch(`${API}/precision-report`).then((r) => r.json())]);
       if (radar.error) throw new Error(radar.error);
       setItems(radar.items || []);
       setMode(radar.dataMode || "LIVE_DATABASE");
       setHealth(apiHealth);
+      setPrecision(report);
       setMessage(radar.items?.length ? "" : "Belum ada snapshot live. Jalankan scan untuk mengambil kandidat terbaru.");
     } catch (error) {
       setHealth({ db: "error", modelVersion: "—" });
@@ -161,6 +163,7 @@ function App() {
     const result = await fetch(`${API}/demo`).then((r) => r.json());
     setItems(result.items || []);
     setMode(result.dataMode);
+    setPrecision({ status: "FIXTURE_ONLY", targetPrecision: 0.7, minSample: 30, horizons: [] });
     setMessage("Fixture riset aktif. Data ini bukan data pasar live.");
     setLoading(false);
   }
@@ -202,6 +205,11 @@ function App() {
         </section>
         <section className="disclaimer"><span className="shield">◈</span><span><strong>Research tool, not financial advice.</strong> Scores are screening outputs, not profit probabilities. High Priority requires evidence confidence; all unknowns remain visible.</span></section>
         {message && <div className={`notice ${message.includes("selesai") ? "notice-success" : ""}`}><span>{mode === "DEMO_FIXTURES" ? "Fixture mode" : "System note"}</span>{message}</div>}
+        <section className="precision-proof">
+          <div><span className="eyebrow accent">Precision proof</span><strong>{precision?.status === "MEASURED" ? "Measured out-of-sample" : precision?.status === "FIXTURE_ONLY" ? "Fixture only" : "Awaiting outcomes"}</strong></div>
+          <div className="proof-copy">{precision?.status === "MEASURED" ? "Lower confidence bounds are being monitored." : `Need ${precision?.minSample || 30} labeled outcomes per horizon before a precision claim.`}</div>
+          <span className={`proof-mark ${precision?.status === "MEASURED" ? "ready" : ""}`}>{precision?.status === "MEASURED" ? "VALIDATED" : "NOT VALIDATED"}</span>
+        </section>
         <section className="overview-grid">
           <div className="overview-card"><span className="eyebrow">Universe</span><strong>{items.length || "—"}</strong><small>{mode === "DEMO_FIXTURES" ? "labeled fixtures" : "stored observations"}</small></div>
           <div className="overview-card"><span className="eyebrow">Priority</span><strong>{counts.HIGH_PRIORITY || 0}</strong><small>high evidence candidates</small></div>

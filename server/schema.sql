@@ -162,3 +162,4 @@ CREATE INDEX IF NOT EXISTS idx_gates_token_time ON gate_decisions(token_address,
 CREATE INDEX IF NOT EXISTS idx_scores_priority ON score_snapshots(priority_score DESC, observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scores_label ON score_snapshots(label, observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_raw_token_time ON raw_source_observations(token_address, observed_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_outcome_alert_horizon ON outcome_labels(alert_event_id, horizon);
