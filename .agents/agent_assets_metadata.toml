@@ -28,3 +28,17 @@ mtime_ms = 1788538763463
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c4a29b5e-6206-4c81-9a35-cf7e960d9012/2abdd05f-4171-4a01-961c-567edc048b7f/c006c5e3-c3ad-4733-ba32-b1b0fb2f62fc"
 storage_version_token = "1788538776172732"
 content_type = "text/plain"
+
+[[outputs]]
+id = "aaTmhTyO_G7dGeUjJC9Ig"
+uri = "file://attached_assets/Roadmap-Pembangunan-Sistem-Radar-Solana-Versi-1.2.txt"
+type = "text"
+title = "Roadmap Pembangunan Radar Solana — PRD v1.2"
+description = "Roadmap 10–14 minggu dari product contract, provider feasibility, ingestion, feature engine, tri-state gates, scoring, replay, paper mode, walk-forward validation, champion–challenger, hingga go/no-go review."
+logical_id = "6490a26b-7a8b-4a1d-92ec-56a13d809ad4"
+content_hash = "sha256:4ac0354a5615f4102025b6820a602175096fab4f146750f66d5ac71e6a7585ef"
+size = 25584
+mtime_ms = 1788538946291
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c4a29b5e-6206-4c81-9a35-cf7e960d9012/6490a26b-7a8b-4a1d-92ec-56a13d809ad4/c1204a2a-0ec1-4ec7-a35d-9c17bd9c6244"
+storage_version_token = "1788538958975297"
+content_type = "text/plain"

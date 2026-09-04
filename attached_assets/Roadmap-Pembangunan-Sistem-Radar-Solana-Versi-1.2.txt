@@ -1,0 +1,1089 @@
+# Roadmap Pembangunan Sistem
+# Radar Deteksi Token Berpotensi Hype Solana — PRD Versi 1.2
+
+**Versi roadmap:** 1.0  
+**Untuk PRD:** Radar Deteksi Token Berpotensi Hype Solana v1.2  
+**Status:** Rencana pembangunan; belum ada implementasi  
+**Orientasi:** Precision-first, evidence-aware, dan aman terhadap manipulasi  
+**Estimasi waktu:** 10–14 minggu untuk MVP Precision-First sampai paper mode, bergantung pada akses dan coverage provider on-chain  
+
+---
+
+## 1. Tujuan roadmap
+
+Roadmap ini menjelaskan urutan pembangunan sistem agar:
+
+- measurement engine selesai sebelum dashboard dipoles,
+- setiap fitur mempunyai sumber data dan provenance,
+- gate tidak mengubah data `unknown` menjadi `pass`,
+- score dapat direplay dari snapshot historis,
+- performa diukur dengan outcome nyata,
+- model baru tidak langsung menggantikan model aktif,
+- dan sistem tidak dipromosikan sebagai alat yang akurat sebelum paper mode selesai.
+
+Roadmap ini sengaja tidak memasukkan auto-trading, wallet custody, atau penyimpanan private key.
+
+---
+
+## 2. Prinsip pembangunan
+
+### 2.1 Data sebelum UI
+
+Dashboard bukan prioritas pertama. Prioritas pertama adalah memastikan:
+
+```text
+source → observation → feature → gate → score → outcome
+```
+
+dapat ditelusuri dan direproduksi.
+
+### 2.2 Unknown bukan aman
+
+Jika data tidak ada, stale, konflik, atau provider gagal:
+
+```text
+unknown → tahan alert / turunkan confidence
+```
+
+Tidak boleh:
+
+```text
+unknown → pass
+```
+
+### 2.3 Precision dengan abstention
+
+Sistem boleh menghasilkan `NO_CALL`. Jumlah alert yang lebih sedikit dapat diterima jika precision dan kualitas evidence lebih tinggi.
+
+### 2.4 Setiap perubahan model versioned
+
+Threshold, bobot, feature set, cohort policy, lifecycle policy, label definition, dan calibration harus memiliki version.
+
+### 2.5 Tidak ada klaim sebelum validasi
+
+Raw score bukan probabilitas profit. Probabilitas hanya boleh ditampilkan setelah calibration dan evaluasi out-of-sample.
+
+---
+
+## 3. Gambaran milestone
+
+| Milestone | Fokus | Estimasi |
+|---|---|---:|
+| M0 | Product contract dan benchmark definition | Minggu 1 |
+| M1 | Provider feasibility dan environment foundation | Minggu 1–2 |
+| M2 | Data ingestion dan immutable observations | Minggu 2–4 |
+| M3 | Feature engine, lifecycle, dan market regime | Minggu 4–6 |
+| M4 | Tri-state gate dan evidence ledger | Minggu 6–7 |
+| M5 | Scoring, confidence, persistence, dan alert policy | Minggu 7–8 |
+| M6 | Replay engine, dashboard audit, dan paper mode | Minggu 8–10 |
+| M7 | Walk-forward validation dan model governance | Minggu 10–12 |
+| M8 | Hardening dan go/no-go review | Minggu 12–14 |
+
+Estimasi ini bukan komitmen jadwal tetap. Provider on-chain, quota, dan ketersediaan data historis adalah faktor paling menentukan.
+
+---
+
+## 4. Arsitektur target
+
+```text
+Discovery Sources
+    ↓
+Candidate Canonicalization
+    ↓
+Provider Ingestion Queue
+    ↓
+Raw Source Observations
+    ↓
+Market / Holder / Wallet / Pool Snapshots
+    ↓
+Feature Calculation
+    ├── Lifecycle Classifier
+    ├── Market Regime Classifier
+    └── Data Quality Calculator
+    ↓
+Tri-State Gate Engine
+    ↓
+Scoring Engine
+    ├── SignalScore
+    ├── EvidenceConfidence
+    ├── PriorityScore
+    └── Calibrated Probability, setelah tersedia
+    ↓
+Persistence / Cluster / Alert Policy
+    ↓
+Evidence Ledger + Watchlist
+    ↓
+Outcome Labeling
+    ↓
+Replay / Backtest / Champion-Challenger
+```
+
+### 4.1 Stack baseline
+
+Gunakan satu stack backend:
+
+- Backend: Node.js + Express atau Fastify
+- Database: PostgreSQL
+- Scheduler/queue: proses Node.js terkontrol dengan job lease
+- Frontend: React + Tailwind
+- Chart: library chart yang mendukung time-series
+- Testing: unit, integration, replay, contract, dan provider-failure tests
+
+Pilihan framework dapat ditetapkan pada M0. Jangan melakukan migrasi stack di tengah MVP tanpa alasan yang terukur.
+
+---
+
+## 5. Phase 0 — Product contract dan benchmark
+
+**Estimasi:** Minggu 1  
+**Prioritas:** P0  
+**Dependency:** tidak ada  
+**Output:** spesifikasi yang tidak ambigu sebelum coding
+
+### 5.1 Pekerjaan
+
+- Finalisasi definisi `alert_event`.
+- Finalisasi HYPE_1H, HYPE_6H, dan HYPE_24H.
+- Definisikan return bersih, slippage, drawdown, liquidity floor, dan survival.
+- Tetapkan target precision dan coverage sebagai pasangan metrik.
+- Tetapkan minimum cohort size.
+- Tetapkan lifecycle awal.
+- Tetapkan market regime awal.
+- Tetapkan kebijakan `unknown`, stale, source conflict, dan provider outage.
+- Tetapkan alert budget, cooldown, dan cluster deduplication.
+- Tentukan pool type Solana yang dicakup.
+- Tentukan retention raw observation dan snapshot.
+- Buat glossary field dan reason code.
+
+### 5.2 Benchmark dataset
+
+Siapkan dataset fixture yang mencakup:
+
+- token yang mengalami hype,
+- token yang naik sebentar lalu runtuh,
+- rugpull,
+- liquidity removal,
+- bot/wash-driven,
+- clone/copycat,
+- slow mover,
+- token ber-liquidity tipis,
+- token normal,
+- token dengan source failure,
+- token dengan data stale,
+- token dengan source conflict.
+
+Fixture harus menyimpan kondisi pada waktu alert, bukan hanya hasil akhir.
+
+### 5.3 Exit criteria M0
+
+M0 selesai jika:
+
+- semua label memiliki definisi matematis,
+- success dan failure dapat dihitung dari timeline,
+- target precision memiliki coverage target,
+- tidak ada istilah “hype” yang belum memiliki aturan,
+- benchmark fixture tersedia,
+- semua keputusan konfigurasi tercatat dalam dokumen versioned.
+
+**Tidak boleh lanjut ke scoring sebelum M0 selesai.**
+
+---
+
+## 6. Phase 1 — Provider feasibility dan environment foundation
+
+**Estimasi:** Minggu 1–2  
+**Prioritas:** P0  
+**Dependency:** M0  
+**Output:** keputusan provider dan kontrak data yang terbukti
+
+### 6.1 Pekerjaan provider
+
+- Uji DexScreener discovery coverage.
+- Uji DexScreener pair/token response.
+- Uji RugCheck report untuk semua kategori status.
+- Uji RPC/indexer untuk holder, wallet, creator, slot/block, metadata, dan pool.
+- Ukur latency, quota, error rate, rate limit, dan historical availability.
+- Catat field yang tersedia real-time versus field yang hanya tersedia historis.
+- Uji source conflict dan schema drift.
+- Tentukan fallback provider bila dibutuhkan.
+
+### 6.2 Data contract
+
+Setiap field harus memiliki:
+
+```text
+field_name
+provider
+endpoint
+type
+unit
+observed_at
+received_at
+freshness_limit
+nullable_reason
+quality_rule
+fallback_behavior
+```
+
+### 6.3 Environment foundation
+
+- Siapkan konfigurasi environment tanpa menyimpan secret di source.
+- Siapkan koneksi PostgreSQL.
+- Siapkan workflow development minimal.
+- Siapkan logging terstruktur.
+- Siapkan migration mechanism.
+- Siapkan health endpoint.
+- Siapkan konfigurasi rate limit per provider.
+- Siapkan job lease dan process identity.
+
+### 6.4 Exit criteria M1
+
+- setiap feature PRD memiliki provider atau status “not available”,
+- provider yang dipilih mampu mengukur feature wajib,
+- quota mendukung volume kandidat yang realistis,
+- schema fixture dan contract test tersedia,
+- provider failure tidak menyebabkan crash,
+- database dan health check berjalan,
+- tidak ada fitur penting yang masih diasumsikan tersedia tanpa bukti.
+
+Jika M1 gagal, scope harus diperkecil atau provider ditambah. Jangan melanjutkan dengan mock data sebagai pengganti bukti.
+
+---
+
+## 7. Phase 2 — Data ingestion dan immutable observation
+
+**Estimasi:** Minggu 2–4  
+**Prioritas:** P0  
+**Dependency:** M1  
+**Output:** pipeline data yang dapat diaudit dan direplay
+
+### 7.1 Candidate discovery
+
+- Ambil candidate dari sumber discovery.
+- Canonicalize token address.
+- Canonicalize pair/pool address.
+- Identifikasi DEX dan pool type.
+- Deduplicate candidate.
+- Simpan first seen dan discovery source.
+- Jangan menyamakan “tidak ditemukan” dengan “tidak ada”.
+
+### 7.2 Provider ingestion
+
+- Buat adapter terpisah per provider.
+- Terapkan timeout dan retry.
+- Terapkan token bucket per endpoint class.
+- Hormati `Retry-After`.
+- Gunakan exponential backoff dengan jitter.
+- Terapkan concurrency limit.
+- Masukkan request ke queue.
+- Simpan success, empty response, stale response, conflict, dan error sebagai status berbeda.
+
+### 7.3 Raw observations
+
+Simpan:
+
+- provider,
+- endpoint,
+- request context non-secret,
+- response payload atau content hash,
+- observed timestamp,
+- received timestamp,
+- HTTP/status category,
+- schema version,
+- parser version.
+
+Raw observation tidak boleh dioverwrite.
+
+### 7.4 Snapshot materialization
+
+Bentuk snapshot terukur untuk:
+
+- market,
+- liquidity,
+- holder,
+- wallet flow,
+- pool/LP,
+- metadata,
+- creator/deployer.
+
+Setiap snapshot memiliki freshness dan quality status.
+
+### 7.5 Exit criteria M2
+
+- raw response dapat ditelusuri ke feature,
+- ingestion dapat di-replay dari fixture,
+- duplicate request tidak menghasilkan duplicate observation,
+- API 429/5xx/timeout teruji,
+- token baru tetap diproses walau token lain gagal,
+- freshness dihitung benar,
+- provider health metric tersedia,
+- tidak ada scheduler overlap yang tidak terkendali.
+
+---
+
+## 8. Phase 3 — Feature engine, lifecycle, dan market regime
+
+**Estimasi:** Minggu 4–6  
+**Prioritas:** P0  
+**Dependency:** M2  
+**Output:** fitur deterministik yang memiliki quality state
+
+### 8.1 Feature engine
+
+Bangun kalkulasi:
+
+- volume/liquidity ratio,
+- buy/sell ratio,
+- volume acceleration,
+- price trend,
+- relative momentum,
+- holder growth,
+- holder distribution,
+- holder retention,
+- wallet diversity,
+- transaction concentration,
+- inter-arrival entropy,
+- liquidity depth,
+- slippage estimate,
+- liquidity persistence,
+- LP concentration,
+- liquidity withdrawal risk,
+- creator/deployer evidence,
+- metadata similarity,
+- cluster relationship.
+
+### 8.2 Aturan feature
+
+Setiap feature menghasilkan:
+
+```text
+value
+quality_status
+source_count
+freshness
+minimum_sample_status
+calculation_version
+```
+
+Jika denominator tidak valid, hasilnya bukan angka netral. Hasilnya `not_computable`.
+
+### 8.3 Lifecycle classifier
+
+Implementasikan state awal:
+
+```text
+NEW
+EARLY_DISCOVERY
+BONDING_CURVE
+MIGRATION_CANDIDATE
+RAYDIUM_EARLY
+MOMENTUM_CONFIRMATION
+OVEREXTENDED
+DECAYING
+ARCHIVED
+```
+
+Setiap transisi harus memiliki evidence dan timestamp.
+
+### 8.4 Market regime classifier
+
+Implementasikan:
+
+```text
+BULLISH
+NEUTRAL
+RISK_OFF
+HIGH_VOLATILITY
+LIQUIDITY_CONTRACTION
+UNKNOWN
+```
+
+Regime classifier harus diuji agar tidak menggunakan data masa depan.
+
+### 8.5 Exit criteria M3
+
+- feature calculation deterministik,
+- semua formula memiliki unit dan denominator policy,
+- feature missing/stale menghasilkan quality status,
+- lifecycle dapat direplay,
+- market regime tidak mengalami leakage,
+- fixture edge cases lulus,
+- feature output memiliki provenance,
+- feature ablation dapat dijalankan.
+
+---
+
+## 9. Phase 4 — Tri-state gate dan evidence ledger
+
+**Estimasi:** Minggu 6–7  
+**Prioritas:** P0  
+**Dependency:** M3  
+**Output:** keputusan gate yang defensible
+
+### 9.1 Gate yang dibangun
+
+1. Security gate.
+2. Flow quality/bot-wash gate.
+3. Clone/copycat gate.
+4. Price/liquidity divergence gate.
+5. Deployer reputation gate.
+6. Coordinated cluster risk gate.
+
+### 9.2 Tri-state contract
+
+Setiap gate wajib menghasilkan:
+
+```text
+status: pass | reject | unknown
+reason_code
+evidence_refs
+threshold_version
+observed_at
+freshness
+```
+
+### 9.3 Security gate
+
+Implementasikan verifikasi:
+
+- mint authority,
+- freeze authority,
+- pool/LP state,
+- holder concentration,
+- token-program behavior,
+- RugCheck risk category.
+
+Security-critical unknown menahan token dari High Priority.
+
+### 9.4 Flow quality gate
+
+Implementasikan:
+
+- unique buyer ratio dengan denominator buy transaction,
+- repeat-buy,
+- notional concentration,
+- early concentration,
+- temporal irregularity,
+- funding reuse,
+- coordinated exit.
+
+Minimum sample size wajib.
+
+### 9.5 Clone dan cluster
+
+- normalized Levenshtein,
+- metadata hash comparison,
+- creator/funder relationship,
+- launch timing,
+- pool relationship,
+- graph entity reference.
+
+### 9.6 Evidence ledger
+
+Untuk setiap keputusan simpan:
+
+- evidence positif,
+- evidence negatif,
+- data yang hilang,
+- warning,
+- invalidation condition,
+- source references.
+
+### 9.7 Exit criteria M4
+
+- setiap gate memiliki pass/reject/unknown,
+- unknown tidak pernah menjadi pass,
+- security-critical unknown menahan alert,
+- setiap reject dapat dijelaskan dengan reason code,
+- gate dapat direplay,
+- gate decision dapat ditelusuri ke raw observation,
+- false reject dan false accept pada benchmark tercatat.
+
+---
+
+## 10. Phase 5 — Scoring, confidence, persistence, dan alert policy
+
+**Estimasi:** Minggu 7–8  
+**Prioritas:** P0  
+**Dependency:** M4  
+**Output:** model score v1 yang konsisten dan terkontrol
+
+### 10.1 Scoring engine
+
+Implementasikan:
+
+- cohort selection,
+- winsorization,
+- percentile dengan minimum cohort,
+- fallback baseline,
+- score pending,
+- Momentum Score,
+- Holder Health,
+- Flow Quality,
+- Liquidity Quality,
+- cluster penalty,
+- wash penalty,
+- liquidity stability.
+
+### 10.2 Bobot MVP
+
+```text
+Momentum     0.5455
+HolderHealth 0.4545
+```
+
+Validasi startup harus gagal jika bobot tidak berjumlah 1.00.
+
+### 10.3 Confidence
+
+Pisahkan:
+
+- SignalScore,
+- EvidenceConfidence,
+- PriorityScore.
+
+DataConfidence dihitung dari:
+
+- maturity,
+- sample quality,
+- freshness,
+- feature coverage,
+- source agreement.
+
+Ia tidak boleh disebut probability of profit.
+
+### 10.4 Persistence dan anti-spike
+
+- score tinggi satu kali menjadi `SPIKE_UNCONFIRMED`,
+- High Priority memerlukan snapshot persistence,
+- score volatility dihitung,
+- feature stability dihitung,
+- hysteresis diterapkan pada label.
+
+### 10.5 Selective prediction
+
+Implementasikan:
+
+```text
+NO_CALL
+WAIT_FOR_MORE_DATA
+PROVISIONAL
+QUARANTINED
+```
+
+Tidak semua token harus memiliki alert.
+
+### 10.6 Alert budget
+
+- cooldown token,
+- cooldown cluster,
+- maksimum alert per jam,
+- deduplication re-entry,
+- mode konservatif ketika regime buruk.
+
+### 10.7 Exit criteria M5
+
+- semua score berada dalam range yang benar,
+- bobot aktif berjumlah 100%,
+- cohort tidak menggunakan data masa depan,
+- score pending tersedia saat cohort tidak cukup,
+- confidence dan score terpisah,
+- spike tidak langsung dipromosikan,
+- alert budget berjalan,
+- model version tercatat pada setiap score.
+
+---
+
+## 11. Phase 6 — Replay engine, audit dashboard, dan paper mode
+
+**Estimasi:** Minggu 8–10  
+**Prioritas:** P0  
+**Dependency:** M5  
+**Output:** sistem yang dapat diamati tanpa risiko eksekusi
+
+### 11.1 Replay engine
+
+Replay harus dapat:
+
+- membaca raw observations historis,
+- menjalankan parser version tertentu,
+- menghitung feature,
+- menjalankan gates,
+- menghitung score,
+- menghasilkan alert yang sama,
+- membandingkan output antar-model.
+
+Replay engine harus mendukung deterministic seed bila ada randomization pada test.
+
+### 11.2 Dashboard audit
+
+Dashboard menampilkan:
+
+- token/pair,
+- lifecycle,
+- market regime,
+- FinalScore,
+- PriorityScore,
+- EvidenceConfidence,
+- liquidity quantity/quality,
+- freshness,
+- gate status,
+- cluster warning,
+- evidence ledger,
+- score history,
+- invalidation condition.
+
+### 11.3 Rejected dan no-call view
+
+Sediakan halaman untuk:
+
+- rejected,
+- unknown,
+- quarantined,
+- no-call,
+- stale,
+- provider conflict.
+
+Token yang tidak masuk dashboard utama tetap harus dapat diaudit.
+
+### 11.4 Paper mode
+
+Paper mode:
+
+- tidak melakukan transaksi,
+- tidak menyimpan private key,
+- mencatat alert seolah real-time,
+- mengunci alert timestamp,
+- menjalankan outcome labeling,
+- menampilkan hasil setelah horizon tercapai.
+
+### 11.5 Exit criteria M6
+
+- replay menghasilkan output konsisten,
+- dashboard menampilkan freshness dan evidence,
+- alert event tidak terduplikasi,
+- outcome labeling berjalan,
+- paper mode tidak memiliki execution path,
+- operator dapat melihat alasan token tidak dipromosikan.
+
+---
+
+## 12. Phase 7 — Walk-forward validation dan model governance
+
+**Estimasi:** Minggu 10–12  
+**Prioritas:** P0  
+**Dependency:** M6 dan outcome data yang memadai  
+**Output:** bukti awal performa out-of-sample
+
+### 12.1 Walk-forward
+
+- pilih train window,
+- calibration window,
+- validation window,
+- holdout window,
+- geser window secara chronological,
+- kunci threshold sebelum validation,
+- simpan report per window.
+
+### 12.2 Baseline comparison
+
+Bandingkan model dengan:
+
+- volume-only,
+- VLR-only,
+- top-volume,
+- price momentum sederhana,
+- random control.
+
+Jika model kompleks tidak mengalahkan baseline secara konsisten, jangan mengaktifkannya.
+
+### 12.3 Calibration
+
+Setelah outcome memadai:
+
+- mapping score ke estimated hit rate,
+- reliability curve,
+- Brier score,
+- calibration per lifecycle/regime,
+- lower confidence bound.
+
+High Priority dapat menggunakan lower confidence bound setelah calibration stabil.
+
+### 12.4 Champion–challenger
+
+- Champion: model aktif.
+- Challenger: model shadow mode.
+- Challenger tidak mengubah alert.
+- Evaluasi precision, coverage, false positives, alert latency, stability, dan regime breakdown.
+
+### 12.5 Feature ablation
+
+Jalankan model:
+
+- penuh,
+- tanpa holder,
+- tanpa acceleration,
+- tanpa wallet,
+- tanpa liquidity multiplier,
+- tanpa cluster.
+
+Fitur yang tidak stabil out-of-sample tidak menjadi dependency wajib.
+
+### 12.6 Drift monitoring
+
+Pantau:
+
+- feature distribution,
+- score distribution,
+- alert rate,
+- provider coverage,
+- risk event rate,
+- precision per window,
+- lifecycle mix,
+- market regime mix.
+
+### 12.7 Exit criteria M7
+
+- tidak ada leakage,
+- report out-of-sample tersedia,
+- baseline comparison tersedia,
+- calibration report tersedia bila probabilitas digunakan,
+- champion/challenger dapat dijalankan,
+- drift dashboard tersedia,
+- keputusan model didukung data, bukan visual inspection.
+
+---
+
+## 13. Phase 8 — Hardening dan go/no-go review
+
+**Estimasi:** Minggu 12–14  
+**Prioritas:** P0  
+**Dependency:** M7  
+**Output:** keputusan apakah sistem siap memasuki operasi terbatas
+
+### 13.1 Reliability hardening
+
+- uji provider outage,
+- uji quota exhaustion,
+- uji response schema change,
+- uji database restart,
+- uji scheduler overlap,
+- uji queue backlog,
+- uji stale data,
+- uji source conflict,
+- uji duplicate alert,
+- uji kill switch.
+
+### 13.2 Security hardening
+
+- input address validation,
+- API authentication/authorization sesuai kebutuhan,
+- public endpoint rate limiting,
+- redaction log,
+- tidak ada secret di repository,
+- tidak ada wallet signing path,
+- dependency audit,
+- audit trail access control.
+
+### 13.3 Operational runbook
+
+Dokumentasikan:
+
+- cara memeriksa provider health,
+- cara mematikan scoring,
+- cara mengubah model version,
+- cara rollback,
+- cara menangani data stale,
+- cara membaca evidence ledger,
+- cara melakukan replay,
+- cara menandai risk event,
+- cara memulihkan queue.
+
+### 13.4 Go/no-go criteria
+
+**GO terbatas ke paper/observation mode jika:**
+
+- data coverage untuk fitur wajib terukur,
+- unknown tidak bocor menjadi pass,
+- replay deterministik,
+- audit evidence lengkap,
+- kill switch berfungsi,
+- provider failure tertangani,
+- outcome label berjalan,
+- precision dan coverage dilaporkan bersama,
+- tidak ada security-critical blocker.
+
+**NO-GO jika:**
+
+- provider discovery tidak cukup,
+- holder/wallet data tidak dapat diukur,
+- outcome tidak dapat dihitung,
+- ada future leakage,
+- score tidak stabil,
+- high priority didorong oleh sample kecil,
+- schema provider dapat merusak scoring diam-diam,
+- ada jalur auto-execution.
+
+---
+
+## 14. Workstream paralel
+
+Beberapa pekerjaan dapat berjalan paralel setelah dependency terpenuhi.
+
+### Workstream A — Data platform
+
+- provider adapters,
+- queue,
+- rate limiter,
+- raw observations,
+- snapshots,
+- provider health.
+
+### Workstream B — Quant/risk engine
+
+- feature engine,
+- lifecycle,
+- regime,
+- gates,
+- score,
+- calibration,
+- outcome labeling.
+
+### Workstream C — Audit UX
+
+- dashboard,
+- token detail,
+- evidence ledger,
+- rejected/no-call views,
+- freshness status.
+
+### Workstream D — Validation/governance
+
+- fixture benchmark,
+- replay,
+- walk-forward,
+- baseline,
+- champion–challenger,
+- drift monitoring.
+
+Workstream C boleh mulai membuat shell setelah data contract M1 stabil, tetapi tidak boleh mendefinisikan ulang model secara visual.
+
+---
+
+## 15. Prioritas fitur
+
+### P0 — Wajib untuk Precision MVP
+
+- provider feasibility,
+- immutable raw observations,
+- market/holder/wallet snapshots,
+- tri-state security gate,
+- minimum sample size,
+- liquidity quality,
+- flow quality,
+- lifecycle classifier,
+- market regime,
+- cluster risk dasar,
+- score versioning,
+- EvidenceConfidence,
+- NO_CALL,
+- persistence/anti-spike,
+- replay engine,
+- outcome labels,
+- paper mode,
+- walk-forward validation,
+- kill switch.
+
+### P1 — Penting setelah baseline berjalan
+
+- calibrated probability,
+- lower confidence bound,
+- champion–challenger,
+- drift monitoring,
+- advanced coordinated graph,
+- multi-provider consensus,
+- advanced slippage/depth model,
+- per-regime calibration.
+
+### P2 — Fase lanjutan
+
+- smart-money PnL,
+- social narrative authenticity,
+- survival analysis,
+- conformal prediction,
+- automated tuning dengan approval gate,
+- richer alert routing,
+- external notification channels.
+
+### Di luar roadmap ini
+
+- auto-buy,
+- auto-trading,
+- private key management,
+- custody,
+- leverage,
+- copy trading.
+
+---
+
+## 16. Test strategy
+
+### 16.1 Unit tests
+
+Uji:
+
+- normalisasi,
+- denominator,
+- percentile,
+- winsorization,
+- Gini,
+- retention,
+- liquidity multiplier,
+- confidence,
+- weight sum,
+- reason code,
+- label outcome.
+
+### 16.2 Contract tests
+
+Uji:
+
+- provider response valid,
+- response kosong,
+- field hilang,
+- schema berubah,
+- 429,
+- 5xx,
+- timeout,
+- timestamp invalid,
+- source conflict.
+
+### 16.3 Replay tests
+
+Fixture harus menghasilkan:
+
+- gate decision yang sama,
+- score yang sama,
+- label yang sama,
+- evidence reference yang sama,
+
+untuk model dan parser version yang sama.
+
+### 16.4 Adversarial tests
+
+Simulasikan:
+
+- volume spike,
+- fake unique wallets,
+- transaction size seragam,
+- liquidity withdrawal,
+- metadata clone,
+- creator cluster,
+- stale provider,
+- provider mengembalikan nilai nol,
+- price naik tanpa liquidity support.
+
+### 16.5 Property tests
+
+Pastikan:
+
+- score tidak keluar dari range,
+- bobot aktif selalu 100%,
+- unknown tidak pernah menjadi pass,
+- timestamp tidak bergerak ke masa depan,
+- duplicate alert tidak bertambah,
+- missing data tidak menghasilkan angka valid palsu.
+
+---
+
+## 17. Risiko utama dan mitigasi
+
+| Risiko | Dampak | Mitigasi |
+|---|---|---|
+| Discovery tidak lengkap | recall rendah dan bias sumber | uji coverage, multi-source, laporkan coverage |
+| Provider rate limit | data stale dan alert hilang | queue, token bucket, backoff, budget |
+| Holder/wallet tidak tersedia | score palsu | unknown, quarantine, provider on-chain |
+| Threshold mudah digame | false positive | adversarial test, cluster, flow quality |
+| Overfitting | performa runtuh di data baru | walk-forward, baseline, ablation |
+| Future leakage | metrik palsu | chronological feature store dan audit |
+| Low-liquidity spike | score momentum palsu | liquidity floor, depth, slippage |
+| Score berubah-ubah | alert noise | persistence, hysteresis, volatility |
+| Source schema berubah | keputusan rusak diam-diam | contract test, schema guard, kill switch |
+| Creator cluster berulang | correlated loss | graph cluster dan alert dedup |
+| Confidence disalahartikan | pengguna terlalu percaya | pisahkan evidence vs probability |
+| Data historis bias | validasi tidak representatif | beberapa regime dan holdout |
+
+---
+
+## 18. Definition of Done sistem v1.2
+
+Sistem dianggap selesai untuk MVP Precision-First jika:
+
+1. Candidate discovery dan canonicalization berjalan.
+2. Semua raw observation penting memiliki provenance.
+3. Provider error tidak menghentikan seluruh scan.
+4. Market, holder, wallet, pool, lifecycle, dan regime snapshot tersedia sesuai coverage.
+5. Gate menghasilkan pass/reject/unknown.
+6. Unknown tidak masuk High Priority.
+7. Score dan confidence dapat direplay.
+8. Bobot konsisten dan selalu berjumlah 100%.
+9. Score spike tidak langsung menjadi confirmed alert.
+10. Evidence ledger dapat dibaca pengguna.
+11. Rejected, no-call, stale, dan quarantined dapat diaudit.
+12. Outcome labels terisi pada horizon yang ditetapkan.
+13. Paper mode berjalan tanpa jalur transaksi.
+14. Walk-forward report dan baseline comparison tersedia.
+15. Champion–challenger dapat dijalankan.
+16. Provider health, drift monitor, dan kill switch tersedia.
+17. Go/no-go review terdokumentasi.
+
+---
+
+## 19. Urutan eksekusi yang direkomendasikan
+
+```text
+M0 Product contract
+  ↓
+M1 Provider feasibility
+  ↓
+M2 Ingestion + immutable observation
+  ↓
+M3 Feature + lifecycle + regime
+  ↓
+M4 Tri-state gates + evidence
+  ↓
+M5 Score + confidence + alert policy
+  ↓
+M6 Replay + dashboard audit + paper mode
+  ↓
+M7 Walk-forward + calibration + challenger
+  ↓
+M8 Hardening + go/no-go
+```
+
+Jangan membalik urutan menjadi:
+
+```text
+dashboard → formula → data → validasi
+```
+
+Urutan tersebut berisiko menghasilkan aplikasi yang terlihat meyakinkan tetapi belum terbukti presisi.
+
+---
+
+## 20. Keputusan sebelum mulai membangun
+
+Sebelum Phase 0 dimulai, pemilik produk harus menyetujui:
+
+- provider on-chain/indexer,
+- budget quota,
+- pool type,
+- outcome threshold,
+- liquidity floor,
+- target precision/coverage,
+- alert budget,
+- retention data,
+- definisi risk event,
+- dan keputusan bahwa sistem hanya memasuki paper mode sampai validasi selesai.
+
+Roadmap ini menjadi acuan pelaksanaan PRD v1.2. Perubahan scope harus dicatat sebagai perubahan versi, terutama perubahan pada label outcome, provider, gate, bobot, dan alert policy.
